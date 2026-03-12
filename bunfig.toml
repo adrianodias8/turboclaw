@@ -1,0 +1,8 @@
+# Disable Bun's built-in ws polyfill so @whiskeysockets/baileys uses the real ws package.
+# Bun's ws implementation doesn't support 'upgrade' and 'unexpected-response' events
+# which Baileys needs for the WhatsApp Web handshake.
+[install]
+[install.scopes]
+
+[run]
+# No special settings needed

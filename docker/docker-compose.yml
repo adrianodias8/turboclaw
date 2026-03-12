@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  turboclaw:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.host
+    ports:
+      - "7800:7800"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - turboclaw-data:/root/.turboclaw
+      - workspaces:/root/.turboclaw/workspaces
+    environment:
+      - TURBOCLAW_GATEWAY_PORT=7800
+      - TURBOCLAW_GATEWAY_HOST=0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7800/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - turboclaw-net
+
+networks:
+  turboclaw-net:
+    driver: bridge
+
+volumes:
+  turboclaw-data:
+  workspaces:

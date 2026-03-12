@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun init:*)",
+      "Bash(bun add:*)",
+      "Bash(bun test:*)",
+      "Bash(timeout 3 bun run src/index.ts --headless 2>&1 || true)",
+      "Bash(bunx tsc:*)",
+      "Bash(bun run:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.ollama.com)",
+      "WebFetch(domain:baileys.wiki)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:medium.com)",
+      "WebSearch",
+      "WebFetch(domain:opencode.ai)",
+      "WebFetch(domain:www.opencode.live)",
+      "Bash(find /Users/adriano/_DEV/iclaude-projects/turboclaw-new -type d -not -path '*/node_modules/*' | grep -E \"^/Users/adriano/_DEV/iclaude-projects/turboclaw-new/[^/]+$\" | sort)",
+      "Bash(bun build:*)",
+      "Bash(curl -s http://localhost:7800/health)",
+      "Bash(python3 -m json.tool)",
+      "Bash(pkill -f \"bun run src/index.ts\")",
+      "Bash(pkill -f \"node -e\")",
+      "Bash(gh api:*)",
+      "Bash(xargs -I{} gh api repos/adrianodias8/bunclaw/git/trees/{} --jq .tree[].path)",
+      "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d[''''content'''']\\).decode\\(\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''dependencies'''',{}\\), indent=2\\)\\)\")",
+      "Bash(rm -rf ~/.turboclaw/whatsapp-auth)",
+      "Bash(mkdir -p ~/.turboclaw/whatsapp-auth)",
+      "Bash(gtimeout 30 bun run src/index.ts --headless)",
+      "Bash(sqlite3 ~/.turboclaw/turboclaw.db \"SELECT id, title, status, retries FROM tasks ORDER BY created_at DESC LIMIT 10;\")",
+      "Bash(docker build:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
