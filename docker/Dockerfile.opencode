@@ -1,0 +1,36 @@
+FROM oven/bun:latest
+
+# Install system dependencies including Chromium for browser automation
+RUN apt-get update && apt-get install -y \
+    git curl ca-certificates chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (needed for opencode-browser plugin)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install OpenCode CLI
+RUN npm install -g opencode-ai@latest
+
+# Install opencode-browser plugin (non-fatal if it fails)
+RUN npx @different-ai/opencode-browser@latest install || true
+
+# Create non-root user
+RUN useradd -m -s /bin/bash agent
+
+# Create workspace and memory directories
+RUN mkdir -p /workspace/.turboclaw/memory && chown -R agent:agent /workspace
+
+# Copy default opencode config (credentials configured at runtime via env vars)
+COPY --chown=agent opencode.json /home/agent/.config/opencode/opencode.json
+
+USER agent
+WORKDIR /workspace
+
+ENV HOME=/home/agent
+ENV OPENCODE_BROWSER_BACKEND=agent
+ENV CHROME_PATH=/usr/bin/chromium
+
+# No fixed entrypoint — container manager passes the full command
+CMD ["echo", "No command provided"]

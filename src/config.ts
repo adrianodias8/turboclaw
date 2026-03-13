@@ -23,6 +23,8 @@ export interface TurboClawConfig {
     model?: string;
   } | null;
   agent?: "opencode" | "claude-code" | "codex";
+  /** Host project directory to mount as the container workspace. Defaults to cwd. */
+  workspaceRoot?: string;
   whatsapp: {
     enabled: boolean;
     allowedNumbers: string[];
@@ -92,6 +94,7 @@ export function loadConfig(): TurboClawConfig {
     whatsapp: { ...DEFAULT_CONFIG.whatsapp, ...(fileConfig.whatsapp as Record<string, unknown> ?? {}) },
     memory: { ...DEFAULT_CONFIG.memory, ...(fileConfig.memory as Record<string, unknown> ?? {}) },
     agent: (fileConfig.agent as TurboClawConfig["agent"]) ?? undefined,
+    workspaceRoot: (fileConfig.workspaceRoot as string) ?? undefined,
   } as TurboClawConfig;
 
   // Env var overrides
@@ -103,6 +106,9 @@ export function loadConfig(): TurboClawConfig {
   }
   if (process.env.TURBOCLAW_MAX_CONCURRENCY) {
     config.orchestrator.maxConcurrency = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
+  }
+  if (process.env.TURBOCLAW_WORKSPACE_ROOT) {
+    config.workspaceRoot = process.env.TURBOCLAW_WORKSPACE_ROOT;
   }
   if (process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS) {
     config.memory.dailyRetentionDays = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);

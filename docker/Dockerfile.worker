@@ -19,7 +19,7 @@ RUN npm install -g @anthropic-ai/claude-code
 RUN useradd -m -s /bin/bash agent
 
 # Create workspace and memory directories
-RUN mkdir -p /workspace /memory && chown agent:agent /workspace /memory
+RUN mkdir -p /workspace/.turboclaw/memory && chown -R agent:agent /workspace
 
 USER agent
 WORKDIR /workspace

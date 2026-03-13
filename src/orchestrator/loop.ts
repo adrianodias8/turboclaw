@@ -4,7 +4,7 @@ import type { ContainerManager } from "../container/manager";
 import type { TurboClawConfig } from "../config";
 import { validateSelfImproveTask, buildSelfImproveEnv, selfImprovePreamble } from "../container/self-improve";
 import { resolveCredentialPaths } from "../container/credentials";
-import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths } from "../container/agent-commands";
+import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths, resolveOpenCodeModel } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
 import { buildContext, buildCoreContext } from "../memory/context";
 import { maybeCreateTaskMemory } from "../memory/auto-memory";
@@ -55,46 +55,70 @@ export function startOrchestrator(
 
     logger.info(`Claimed task: ${task.title} (${task.id}) → run ${run.id} [strategy=${config.orchestrator.schedulingStrategy}]`);
 
-    // Prepare workspace
-    const workspacePath = join(config.home, "workspaces", task.id);
+    // Workspace: mount the host project root so the agent can work on real files.
+    // Falls back to a per-task directory if no workspaceRoot is configured.
+    const workspacePath = config.workspaceRoot ?? process.cwd();
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
 
+    // Per-task artifact directory for logs/outputs (not the container workspace)
+    const artifactDir = join(config.home, "tasks", task.id);
+    if (!existsSync(artifactDir)) {
+      mkdirSync(artifactDir, { recursive: true });
+    }
+
     // Build environment variables from provider config
     const envVars: Record<string, string> = {};
+    const agentType: AgentType = config.agent ?? "opencode";
+
     if (config.provider) {
       envVars.TURBOCLAW_PROVIDER_TYPE = config.provider.type;
 
       if (config.provider.apiKey) {
-        if (config.provider.type === "anthropic" || config.provider.type === "claude-code") {
-          // Claude Code CLI respects ANTHROPIC_API_KEY for regular API keys
-          // and CLAUDE_CODE_OAUTH_TOKEN for OAuth tokens (sk-ant-oat* prefix)
-          const key = config.provider.apiKey;
+        const key = config.provider.apiKey;
+        const provType = config.provider.type;
+
+        // Set the canonical env var based on provider type
+        if (provType === "anthropic" || provType === "claude-code" || provType === "claude-sub") {
           if (key.startsWith("sk-ant-oat")) {
-            // OAuth-derived token from `claude setup-token`
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           } else if (key.startsWith("sk-ant-")) {
             envVars.ANTHROPIC_API_KEY = key;
           } else {
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           }
-        } else if (config.provider.type === "openai") {
-          envVars.OPENAI_API_KEY = config.provider.apiKey;
-        } else if (config.provider.type === "custom") {
-          envVars.OPENAI_API_KEY = config.provider.apiKey;
+          // OpenCode and Codex also need ANTHROPIC_API_KEY if using Anthropic provider
+          if (agentType !== "claude-code" && key.startsWith("sk-ant-") && !key.startsWith("sk-ant-oat")) {
+            envVars.ANTHROPIC_API_KEY = key;
+          }
+        } else if (provType === "openai" || provType === "chatgpt" || provType === "copilot") {
+          envVars.OPENAI_API_KEY = key;
+        } else if (provType === "codex") {
+          envVars.OPENAI_API_KEY = key;
+        } else if (provType === "custom") {
+          envVars.OPENAI_API_KEY = key;
+        }
+
+        // Cross-agent compatibility: ensure the agent's expected env var is set
+        if (agentType === "claude-code" && !envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
+          // Claude Code needs ANTHROPIC_API_KEY — set it from whatever key we have
+          envVars.ANTHROPIC_API_KEY = key;
+        } else if (agentType === "codex" && !envVars.OPENAI_API_KEY) {
+          // Codex needs OPENAI_API_KEY
+          envVars.OPENAI_API_KEY = key;
         }
       }
 
       if (config.provider.baseUrl) {
-        envVars.OPENAI_BASE_URL = config.provider.baseUrl; // OpenCode uses OpenAI-compatible env vars
+        envVars.OPENAI_BASE_URL = config.provider.baseUrl;
       }
       if (config.provider.model) {
         envVars.OPENCODE_MODEL = config.provider.model;
       }
     }
 
-    // Self-improve mode
+    // Self-improve mode: override workspace to TurboClaw's own source tree
     let mountProjectSource: string | undefined;
     if (task.agent_role === "self-improve") {
       const validation = validateSelfImproveTask(config, task);
@@ -107,8 +131,11 @@ export function startOrchestrator(
         activeCount--;
         return;
       }
+      // Mount TurboClaw source as /project AND override workspace to point there
+      // so the agent's working directory is the source tree it needs to improve.
       mountProjectSource = process.cwd();
       Object.assign(envVars, buildSelfImproveEnv(config, task.id));
+      envVars.TURBOCLAW_WORK_DIR = "/project";
     }
 
     const memoryVaultPath = join(config.home, "memory");
@@ -146,21 +173,33 @@ export function startOrchestrator(
     }
 
     // Resolve agent CLI command based on configured agent type
-    const agentType: AgentType = config.agent ?? "opencode";
-    const agentCommand = buildAgentCommand(agentType);
+    let agentCommand = buildAgentCommand(agentType);
+
+    // For OpenCode, resolve the model string from provider config
+    if (agentType === "opencode" && config.provider) {
+      const model = resolveOpenCodeModel(config.provider);
+      agentCommand = agentCommand.map(arg => arg === "{model}" ? model : arg);
+    } else if (agentType === "opencode") {
+      // No provider configured, use default model
+      agentCommand = agentCommand.map(arg => arg === "{model}" ? "anthropic/claude-sonnet-4-20250514" : arg);
+    }
 
     // Merge agent-specific env vars
     const agentEnv = getAgentEnvVars(agentType);
     Object.assign(envVars, agentEnv);
 
-    // Resolve credential paths for OAuth providers
+    // Resolve credential paths for OAuth providers, deduplicated
     const credentialPaths = config.provider?.type
       ? resolveCredentialPaths(config.provider.type)
       : [];
 
-    // Also include agent-specific credential paths
+    // Also include agent-specific credential paths (dedup to avoid duplicate Docker mounts)
     const agentCredPaths = getAgentCredentialPaths(agentType);
-    credentialPaths.push(...agentCredPaths);
+    for (const p of agentCredPaths) {
+      if (!credentialPaths.includes(p)) {
+        credentialPaths.push(p);
+      }
+    }
 
     try {
       const container = await containerManager.spawn({
@@ -175,6 +214,7 @@ export function startOrchestrator(
         providerType: config.provider?.type,
         credentialPaths,
         agentCommand,
+        agentType,
       });
 
       activeContainers.set(run.id, container.containerId);

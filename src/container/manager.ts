@@ -54,9 +54,9 @@ export function createContainerManager(
         "-w", "/workspace",
       ];
 
-      // Mount memory vault if provided
+      // Mount memory vault co-located with workspace so agents can find it
       if (opts.memoryVaultPath) {
-        dockerArgs.push("-v", `${opts.memoryVaultPath}:/memory`);
+        dockerArgs.push("-v", `${opts.memoryVaultPath}:/workspace/.turboclaw/memory`);
       }
 
       // Mount project source for self-improve mode
@@ -71,24 +71,30 @@ export function createContainerManager(
         }
       }
 
-      // Environment variables
+      // Environment variables (agent-specific env vars like OPENCODE_BROWSER_BACKEND
+      // are set via opts.envVars by the orchestrator, not hardcoded here)
       dockerArgs.push(
         "-e", `TURBOCLAW_TASK_ID=${opts.taskId}`,
         "-e", `TURBOCLAW_RUN_ID=${opts.runId}`,
         "-e", `TURBOCLAW_AGENT_ROLE=${opts.agentRole}`,
-        "-e", `OPENCODE_BROWSER_BACKEND=agent`,
+        "-e", `TURBOCLAW_MEMORY_PATH=/workspace/.turboclaw/memory`,
       );
 
       for (const [key, value] of Object.entries(opts.envVars)) {
         dockerArgs.push("-e", `${key}=${value}`);
       }
 
-      // Image and command
-      dockerArgs.push(config.image);
+      // Select image based on agent type
+      const image = opts.agentType === "opencode"
+        ? config.openCodeImage
+        : config.image;
+      dockerArgs.push(image);
       const agentCmd = opts.agentCommand ?? config.agentCommand;
-      const cmd = agentCmd.map((arg) =>
-        arg === "{prompt}" ? opts.prompt : arg
-      );
+      const cmd = agentCmd.map((arg) => {
+        if (arg === "{prompt}") return opts.prompt;
+        if (arg === "{model}") return opts.envVars.OPENCODE_MODEL ?? "anthropic/claude-sonnet-4-20250514";
+        return arg;
+      });
       dockerArgs.push(...cmd);
 
       logger.info(`Spawning container: ${containerName}`);

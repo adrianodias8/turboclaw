@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Text, useApp } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 import { Select, TextInput, Spinner } from "@inkjs/ui";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -22,6 +22,8 @@ type Step =
   | "cred-check"
   | "ollama-detect"
   | "custom-url"
+  | "agent-select"
+  | "workspace-root"
   | "build-image"
   | "whatsapp"
   | "whatsapp-number"
@@ -97,6 +99,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           saveConfig(config);
           setOauthStatus("success");
           setOauthMessage("GitHub Copilot authenticated successfully.");
+          setTimeout(() => setStep("agent-select"), 500);
         } else {
           setOauthStatus("error");
           setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
@@ -114,6 +117,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           saveConfig(config);
           setOauthStatus("success");
           setOauthMessage("ChatGPT (OpenAI OAuth) authenticated successfully.");
+          setTimeout(() => setStep("agent-select"), 500);
         } else {
           setOauthStatus("error");
           setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
@@ -131,6 +135,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           saveConfig(config);
           setOauthStatus("success");
           setOauthMessage("Claude subscription authenticated successfully.");
+          setTimeout(() => setStep("agent-select"), 500);
         } else {
           setOauthStatus("error");
           setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
@@ -149,9 +154,8 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     if (existsSync(credDir)) {
       setCredCheckResult("found");
       config.provider = { type: "codex" };
-      config.agent = "codex";
       saveConfig(config);
-      setTimeout(() => setStep("build-image"), 500);
+      setTimeout(() => setStep("agent-select"), 500);
     } else {
       setCredCheckResult("missing");
     }
@@ -174,59 +178,101 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           model: models[0] ?? "llama3",
         };
         saveConfig(config);
-        setStep("build-image");
+        setStep("agent-select");
       } catch {
         setOllamaModels([]);
         config.provider = { type: "ollama", baseUrl: "http://host.docker.internal:11434" };
         saveConfig(config);
-        setStep("build-image");
+        setStep("agent-select");
       }
     }
 
     detectOllama();
   }, [step]);
 
+  const suggestAgent = (providerType: string | undefined): "opencode" | "claude-code" | "codex" => {
+    switch (providerType) {
+      case "claude-code": return "claude-code";
+      case "codex": return "codex";
+      default: return "opencode";
+    }
+  };
+
+  const AGENT_OPTIONS = [
+    { label: "OpenCode (recommended — multi-provider, browser, skills)", value: "opencode" },
+    { label: "Claude Code (Anthropic only)", value: "claude-code" },
+    { label: "Codex (OpenAI only)", value: "codex" },
+  ];
+
+  const handleAgentSelect = (value: string) => {
+    config.agent = value as "opencode" | "claude-code" | "codex";
+    saveConfig(config);
+    setStep("workspace-root");
+  };
+
+  const handleWorkspaceRoot = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      config.workspaceRoot = trimmed;
+    }
+    // If empty, defaults to cwd at runtime
+    saveConfig(config);
+    setStep("build-image");
+  };
+
   // Build Docker image
   useEffect(() => {
     if (step !== "build-image") return;
 
-    async function buildImage() {
+    async function doBuild() {
+      const selectedAgent = config.agent ?? "opencode";
+      const isOpenCode = selectedAgent === "opencode";
+      const imageTag = isOpenCode ? "turboclaw-opencode:latest" : "turboclaw-worker:latest";
+
       setBuildStatus("building");
-      setBuildMessage("Building worker Docker image (this may take a minute)...");
+      setBuildMessage(`Building ${isOpenCode ? "OpenCode" : "worker"} Docker image (this may take a minute)...`);
 
       // Check if image already exists
-      const checkProc = Bun.spawn(["docker", "image", "inspect", "turboclaw-worker:latest"], {
+      const checkProc = Bun.spawn(["docker", "image", "inspect", imageTag], {
         stdout: "ignore",
         stderr: "ignore",
       });
       const checkExit = await checkProc.exited;
       if (checkExit === 0) {
         setBuildStatus("success");
-        setBuildMessage("Worker image already exists.");
+        setBuildMessage(`${isOpenCode ? "OpenCode" : "Worker"} image already exists.`);
         setTimeout(() => setStep("whatsapp"), 500);
         return;
       }
 
-      const { buildWorkerImage } = await import("../../container/builder");
-      const result = await buildWorkerImage();
-      if (result.success) {
-        setBuildStatus("success");
-        setBuildMessage("Worker image built successfully.");
-
-        // Also create Docker network
-        Bun.spawn(["docker", "network", "create", "turboclaw-net"], {
-          stdout: "ignore",
-          stderr: "ignore",
-        });
-
-        setTimeout(() => setStep("whatsapp"), 500);
+      if (isOpenCode) {
+        const { buildOpenCodeImage } = await import("../../container/builder");
+        const result = await buildOpenCodeImage();
+        if (result.success) {
+          setBuildStatus("success");
+          setBuildMessage("OpenCode image built successfully.");
+          Bun.spawn(["docker", "network", "create", "turboclaw-net"], { stdout: "ignore", stderr: "ignore" });
+          setTimeout(() => setStep("whatsapp"), 500);
+        } else {
+          setBuildStatus("error");
+          setBuildMessage("Image build failed. You can build it later with: docker build -t turboclaw-opencode:latest -f docker/Dockerfile.opencode docker/");
+        }
       } else {
-        setBuildStatus("error");
-        setBuildMessage(`Image build failed. You can build it later with: bun run scripts/build-worker.ts`);
+        const { buildWorkerImage } = await import("../../container/builder");
+        const result = await buildWorkerImage();
+        if (result.success) {
+          setBuildStatus("success");
+          setBuildMessage("Worker image built successfully.");
+          Bun.spawn(["docker", "network", "create", "turboclaw-net"], { stdout: "ignore", stderr: "ignore" });
+          setTimeout(() => setStep("whatsapp"), 500);
+        } else {
+          setBuildStatus("error");
+          setBuildMessage("Image build failed. You can build it later with: bun run scripts/build-worker.ts");
+        }
       }
     }
 
-    buildImage();
+    doBuild();
   }, [step]);
 
   const handleProviderSelect = (value: string) => {
@@ -259,23 +305,22 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     } else {
       config.provider = { type: "claude-code", apiKey: trimmed };
     }
-    config.agent = "claude-code";
     saveConfig(config);
-    setStep("build-image");
+    setStep("agent-select");
   };
 
   const handleApiKey = (value: string) => {
     if (!value.trim()) return;
     config.provider = { type: provider, apiKey: value.trim() };
     saveConfig(config);
-    setStep("build-image");
+    setStep("agent-select");
   };
 
   const handleCustomUrl = (value: string) => {
     if (!value.trim()) return;
     config.provider = { type: "custom", baseUrl: value.trim() };
     saveConfig(config);
-    setStep("build-image");
+    setStep("agent-select");
   };
 
   const handleWhatsappChoice = (value: string) => {
@@ -342,6 +387,46 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     setStep("ready");
   };
 
+  // Handle key presses for error recovery and ready step
+  useInput((input, key) => {
+    if (step === "ready" && key.return) {
+      onComplete();
+    }
+    // Error recovery: press 'r' to retry, 'b' to go back to provider selection
+    if (input === "r" || input === "b") {
+      if (step === "docker-check" && dockerOk === false) {
+        setDockerOk(null);
+        setStep("docker-check");
+      }
+      if (step === "oauth-flow" && oauthStatus === "error") {
+        if (input === "r") {
+          setOauthStatus("running");
+          setOauthMessage("");
+          setStep("oauth-flow");
+        } else {
+          setStep("provider");
+        }
+      }
+      if (step === "cred-check" && credCheckResult === "missing") {
+        if (input === "r") {
+          setCredCheckResult("checking");
+          setStep("cred-check");
+        } else {
+          setStep("provider");
+        }
+      }
+      if (step === "build-image" && buildStatus === "error") {
+        if (input === "r") {
+          setBuildStatus("building");
+          setBuildMessage("");
+          setStep("build-image");
+        } else {
+          setStep("agent-select");
+        }
+      }
+    }
+  });
+
   return (
     <Box flexDirection="column" padding={1}>
       <Text bold color="cyan">
@@ -360,7 +445,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       {dockerOk === false && (
         <Box flexDirection="column">
           <Text color="red">Docker is not running.</Text>
-          <Text>Please start Docker and run `bun run src/index.ts setup` again.</Text>
+          <Text>Please start Docker, then press [r] to retry.</Text>
         </Box>
       )}
 
@@ -401,7 +486,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           {oauthStatus === "error" && (
             <Box flexDirection="column">
               <Text color="red">{oauthMessage}</Text>
-              <Text dimColor>You can try again or choose a different provider.</Text>
+              <Text dimColor>Press [r] to retry or [b] to go back to provider selection.</Text>
             </Box>
           )}
         </Box>
@@ -419,7 +504,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           {credCheckResult === "missing" && (
             <Box flexDirection="column">
               <Text color="yellow">Credential directory not found: ~/.codex/</Text>
-              <Text>Please run `codex auth` first, then re-run setup.</Text>
+              <Text>Run `codex auth` first, then press [r] to retry or [b] to go back.</Text>
             </Box>
           )}
         </Box>
@@ -454,6 +539,30 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         </Box>
       )}
 
+      {/* Agent selection */}
+      {step === "agent-select" && (
+        <Box flexDirection="column">
+          <Text bold>Which agent should run your tasks?</Text>
+          <Text dimColor>
+            Suggested: <Text color="cyan">{suggestAgent(config.provider?.type)}</Text> based on your provider
+          </Text>
+          <Box marginTop={1} />
+          <Select options={AGENT_OPTIONS} onChange={handleAgentSelect} />
+        </Box>
+      )}
+
+      {/* Workspace root */}
+      {step === "workspace-root" && (
+        <Box flexDirection="column">
+          <Text bold>Project directory to mount as workspace:</Text>
+          <Text dimColor>The agent will work on files in this directory. Press Enter to use current directory.</Text>
+          <Text dimColor>Current: {process.cwd()}</Text>
+          <Box marginTop={1}>
+            <TextInput placeholder={process.cwd()} onSubmit={handleWorkspaceRoot} />
+          </Box>
+        </Box>
+      )}
+
       {/* Build Docker image */}
       {step === "build-image" && (
         <Box flexDirection="column">
@@ -466,6 +575,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           {buildStatus === "error" && (
             <Box flexDirection="column">
               <Text color="red">{buildMessage}</Text>
+              <Text dimColor>Press [r] to retry or [b] to go back to agent selection.</Text>
             </Box>
           )}
         </Box>
@@ -552,6 +662,9 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
             Provider: <Text color="cyan">{config.provider?.type ?? "none"}</Text>
             {config.agent && <Text dimColor> (agent: {config.agent})</Text>}
           </Text>
+          <Text>
+            Workspace: <Text color="cyan">{config.workspaceRoot ?? process.cwd()}</Text>
+          </Text>
           {config.whatsapp.enabled && (
             <Text>
               WhatsApp: <Text color="green">enabled</Text>
@@ -579,8 +692,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
             </Text>
           )}
           <Box marginTop={1} />
-          <Text>Run `bun run src/index.ts` to launch TurboClaw.</Text>
-          <Text dimColor>Or `bun run src/index.ts --headless` for API-only mode.</Text>
+          <Text bold>Press Enter to continue.</Text>
         </Box>
       )}
     </Box>

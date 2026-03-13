@@ -1,0 +1,32 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "anthropic": {
+      "options": {
+        "apiKey": "{env:ANTHROPIC_API_KEY}"
+      }
+    },
+    "openai": {
+      "options": {
+        "apiKey": "{env:OPENAI_API_KEY}"
+      }
+    },
+    "custom": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Custom Provider",
+      "options": {
+        "baseURL": "{env:OPENAI_BASE_URL}",
+        "apiKey": "{env:OPENAI_API_KEY}"
+      },
+      "models": {
+        "default": { "name": "default" }
+      }
+    }
+  },
+  "plugin": [
+    "@different-ai/opencode-browser"
+  ],
+  "permission": {
+    "skill": { "*": "allow" }
+  }
+}

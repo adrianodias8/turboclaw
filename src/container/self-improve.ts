@@ -40,6 +40,8 @@ export function selfImprovePreamble(taskId: string): string {
   const branch = `turboclaw/improve/${taskId}`;
   return [
     `# TurboClaw Self-Improve Mode`,
+    `# The TurboClaw source is mounted at /project. Work there.`,
+    `cd /project`,
     `# Always work on a feature branch — never commit to main.`,
     `git checkout -b ${branch}`,
     `# Protected files (do not modify): ${[...PROTECTED_FILES].join(", ")}`,

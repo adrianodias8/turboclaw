@@ -59,8 +59,10 @@ export function resolveCredentialPaths(providerType: string): string[] {
   // Common: opencode general config (may contain cached tokens)
   const opencodeConfig = join(HOME, ".config", "opencode");
   if (existsSync(opencodeConfig) && !paths.includes(opencodeConfig)) {
-    // Only mount the config dir if we haven't already mounted a subdir
-    const alreadyMounted = paths.some((p) => p.startsWith(opencodeConfig));
+    // Only mount the config dir if we haven't already mounted it or a subdir of it
+    const sep = "/";
+    const prefix = opencodeConfig + sep;
+    const alreadyMounted = paths.some((p) => p === opencodeConfig || p.startsWith(prefix));
     if (!alreadyMounted) {
       paths.push(opencodeConfig);
     }
