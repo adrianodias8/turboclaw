@@ -66,7 +66,7 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
 };
 
 export function loadConfig(): TurboClawConfig {
-  const home = process.env.TURBOCLAW_HOME ?? join(process.env.HOME ?? "~", ".turboclaw");
+  const home = process.env.TURBOCLAW_HOME ?? join(process.cwd(), ".turboclaw");
   const configPath = join(home, "config.json");
   const dbPath = join(home, "turboclaw.db");
 
