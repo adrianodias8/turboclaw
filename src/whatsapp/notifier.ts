@@ -7,8 +7,12 @@ export interface NotifierHandle {
 
 export function startNotifier(
   store: Store,
-  sendMessage: (text: string) => Promise<void>,
-  opts: { notifyOnComplete: boolean; notifyOnFail: boolean }
+  sendMessage: (text: string, jid?: string) => Promise<void>,
+  opts: {
+    notifyOnComplete: boolean;
+    notifyOnFail: boolean;
+    getTaskJid?: (taskId: string) => string | undefined;
+  }
 ): NotifierHandle {
   let lastCheckedAt = Math.floor(Date.now() / 1000);
   let running = true;
@@ -23,7 +27,19 @@ export function startNotifier(
       for (const t of failed) {
         if (t.updated_at > lastCheckedAt) {
           try {
-            await sendMessage(`Task failed: ${t.title} (${t.id.slice(0, 8)})`);
+            const jid = opts.getTaskJid?.(t.id) ?? t.reply_jid ?? undefined;
+            // Get error output if available
+            const lastRun = store.getLatestRun(t.id);
+            let errOutput = "";
+            if (lastRun) {
+              const events = store.listEvents(lastRun.id);
+              const stderrEvents = events.filter((e) => e.kind === "stderr");
+              errOutput = stderrEvents.map((e) => e.payload).join("\n").trim();
+            }
+            const msg = errOutput
+              ? `Sorry, that failed:\n${errOutput.slice(0, 1000)}`
+              : `Sorry, that failed. (${t.id.slice(0, 8)})`;
+            await sendMessage(msg, jid);
           } catch (err) {
             logger.warn("WhatsApp notify failed:", err);
           }
@@ -36,7 +52,9 @@ export function startNotifier(
       for (const t of done) {
         if (t.updated_at > lastCheckedAt) {
           try {
-            // Get the last stdout event from the run to include agent output
+            // Check both in-memory map and task's reply_jid (for cron-created tasks)
+            const jid = opts.getTaskJid?.(t.id) ?? t.reply_jid ?? undefined;
+            // Get the agent output
             const lastRun = store.getLatestRun(t.id);
             let output = "";
             if (lastRun) {
@@ -44,10 +62,9 @@ export function startNotifier(
               const stdoutEvents = events.filter((e) => e.kind === "stdout");
               output = stdoutEvents.map((e) => e.payload).join("\n").trim();
             }
-            const msg = output
-              ? `Task completed: ${t.title} (${t.id.slice(0, 8)})\n\n${output.slice(0, 2000)}`
-              : `Task completed: ${t.title} (${t.id.slice(0, 8)})`;
-            await sendMessage(msg);
+            // Send just the output for a natural conversational feel
+            const msg = output || `Done. (${t.id.slice(0, 8)})`;
+            await sendMessage(msg.slice(0, 4000), jid);
           } catch (err) {
             logger.warn("WhatsApp notify failed:", err);
           }
@@ -58,7 +75,7 @@ export function startNotifier(
     lastCheckedAt = now;
   }
 
-  const interval = setInterval(check, 5000);
+  const interval = setInterval(check, 3000);
 
   return {
     stop() {

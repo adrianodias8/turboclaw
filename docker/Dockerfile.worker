@@ -15,9 +15,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 # Install Claude Code CLI globally via npm
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create workspace and memory directories
-RUN mkdir -p /workspace /memory
+# Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash agent
 
+# Create workspace and memory directories
+RUN mkdir -p /workspace /memory && chown agent:agent /workspace /memory
+
+USER agent
 WORKDIR /workspace
 
 # No fixed entrypoint — container manager passes the full command

@@ -21,6 +21,7 @@ export interface Task {
   status: TaskStatus;
   max_retries: number;
   retry_count: number;
+  reply_jid: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -80,6 +81,7 @@ export interface CreateTaskInput {
   agentRole?: AgentRole;
   priority?: number;
   maxRetries?: number;
+  replyJid?: string | null;
 }
 
 export interface CreatePipelineInput {
@@ -95,6 +97,7 @@ export interface Cron {
   schedule: string;
   task_template: string; // JSON
   enabled: number; // 0 or 1
+  one_shot: number; // 0 or 1
   last_run_at: number | null;
   next_run_at: number | null;
   created_at: number;
@@ -117,5 +120,11 @@ export interface CreateCronInput {
     description?: string;
     agentRole?: AgentRole;
     priority?: number;
+    /** WhatsApp JID to send reply to when task completes */
+    replyJid?: string;
   };
+  /** If true, cron auto-disables after first fire */
+  oneShot?: boolean;
+  /** Pre-computed next_run_at for one-shot scheduled tasks */
+  nextRunAt?: number;
 }

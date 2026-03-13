@@ -27,6 +27,7 @@ function makeTask(role: string): Task {
     status: "running",
     max_retries: 3,
     retry_count: 0,
+    reply_jid: null,
     created_at: 0,
     updated_at: 0,
   };

@@ -164,9 +164,9 @@ export function Crons({ store }: CronsProps) {
               <Text color={i === selectedIndex ? "cyan" : undefined} bold={i === selectedIndex}>
                 {i === selectedIndex ? "> " : "  "}
               </Text>
-              <Box width={16}>
+              <Box width={18}>
                 <Text color={cron.enabled ? "green" : "gray"}>
-                  {cron.enabled ? "enabled " : "disabled"}
+                  {cron.one_shot ? (cron.enabled ? "scheduled" : "fired    ") : (cron.enabled ? "enabled  " : "disabled ")}
                 </Text>
               </Box>
               <Box width={20}>

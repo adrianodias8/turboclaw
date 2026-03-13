@@ -12,7 +12,10 @@ export type AgentType = "opencode" | "claude-code" | "codex";
 export function buildAgentCommand(agentType: AgentType): string[] {
   switch (agentType) {
     case "claude-code":
-      return ["claude", "-p", "{prompt}", "--allowedTools", "Bash,Read,Edit,Write"];
+      return [
+        "claude", "-p", "{prompt}",
+        "--dangerously-skip-permissions",
+      ];
     case "codex":
       return ["codex", "exec", "--full-auto", "{prompt}"];
     case "opencode":

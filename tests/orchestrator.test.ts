@@ -14,6 +14,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: "queued",
     max_retries: 3,
     retry_count: 0,
+    reply_jid: null,
     created_at: Math.floor(Date.now() / 1000),
     updated_at: Math.floor(Date.now() / 1000),
     ...overrides,

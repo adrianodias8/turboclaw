@@ -6,6 +6,6 @@ export interface WhatsAppConfig {
 }
 
 export interface ParsedCommand {
-  type: "task" | "status" | "list" | "cancel" | "help" | "unknown";
+  type: "task" | "prompt" | "status" | "list" | "cancel" | "help" | "unknown";
   args: string;
 }

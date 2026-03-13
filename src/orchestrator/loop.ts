@@ -223,6 +223,7 @@ export function startOrchestrator(
           description?: string;
           agentRole?: string;
           priority?: number;
+          replyJid?: string;
         };
 
         const task = store.createTask({
@@ -230,13 +231,22 @@ export function startOrchestrator(
           description: template.description ?? null,
           agentRole: (template.agentRole as "coder" | "reviewer" | "planner" | "self-improve" | "librarian") ?? "coder",
           priority: template.priority ?? 0,
+          replyJid: template.replyJid ?? null,
         });
+        store.updateTaskStatus(task.id, "queued");
 
         const now = Math.floor(Date.now() / 1000);
-        const next = nextRunAt(cron.schedule, new Date());
-        store.updateCronLastRun(cron.id, now, next);
 
-        logger.info(`Cron "${cron.name}" fired → created task "${task.title}" (${task.id}), next run at ${next}`);
+        if (cron.one_shot) {
+          // One-shot crons disable themselves after firing
+          store.updateCronLastRun(cron.id, now, now);
+          store.updateCronEnabled(cron.id, false);
+          logger.info(`One-shot cron "${cron.name}" fired → created task "${task.title}" (${task.id}), now disabled`);
+        } else {
+          const next = nextRunAt(cron.schedule, new Date());
+          store.updateCronLastRun(cron.id, now, next);
+          logger.info(`Cron "${cron.name}" fired → created task "${task.title}" (${task.id}), next run at ${next}`);
+        }
       }
     } catch (err) {
       logger.error("Error processing crons:", err);

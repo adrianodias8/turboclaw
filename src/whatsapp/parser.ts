@@ -3,9 +3,7 @@ import type { ParsedCommand } from "./types";
 export function parseMessage(text: string): ParsedCommand {
   const trimmed = text.trim();
 
-  if (trimmed.startsWith("/task ")) {
-    return { type: "task", args: trimmed.slice(6).trim() };
-  }
+  // Slash commands for system operations
   if (trimmed === "/status") {
     return { type: "status", args: "" };
   }
@@ -18,24 +16,31 @@ export function parseMessage(text: string): ParsedCommand {
   if (trimmed === "/help") {
     return { type: "help", args: "" };
   }
+
+  // /task explicitly names a task
+  if (trimmed.startsWith("/task ")) {
+    return { type: "task", args: trimmed.slice(6).trim() };
+  }
+
+  // Unknown slash command
   if (trimmed.startsWith("/")) {
     return { type: "unknown", args: trimmed };
   }
 
-  // No slash prefix = not a command, show help
-  return { type: "unknown", args: trimmed };
+  // Everything else is a natural language prompt → send to agent
+  return { type: "prompt", args: trimmed };
 }
 
 export function formatHelp(): string {
   return [
-    "*TurboClaw Commands:*",
+    "*TurboClaw*",
     "",
-    "/task <title> - Create a new task",
+    "Just send a message and I'll handle it.",
+    "",
+    "*Commands:*",
     "/status - System status",
     "/list - Recent tasks",
     "/cancel <id> - Cancel a task",
-    "/help - Show this help",
-    "",
-    "All commands require a / prefix.",
+    "/help - This help",
   ].join("\n");
 }

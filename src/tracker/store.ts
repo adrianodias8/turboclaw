@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { SCHEMA } from "./schema";
+import { SCHEMA, MIGRATIONS } from "./schema";
 import { newId } from "../ids";
 import type {
   Task,
@@ -106,6 +106,15 @@ export interface Store {
 export function createStore(db: Database): Store {
   db.exec(SCHEMA);
 
+  // Apply migrations (safe to re-run — ignores "duplicate column" errors)
+  for (const migration of MIGRATIONS) {
+    try {
+      db.exec(migration);
+    } catch {
+      // Column already exists — expected on subsequent runs
+    }
+  }
+
   // Prepared statements
   const stmts = {
     insertPipeline: db.prepare<Pipeline, [string, string, string]>(
@@ -118,9 +127,9 @@ export function createStore(db: Database): Store {
       "SELECT * FROM pipelines ORDER BY created_at DESC"
     ),
 
-    insertTask: db.prepare<Task, [string, string | null, string | null, string, string | null, string, number, number]>(
-      `INSERT INTO tasks (id, pipeline_id, stage, title, description, agent_role, priority, max_retries)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    insertTask: db.prepare<Task, [string, string | null, string | null, string, string | null, string, number, number, string | null]>(
+      `INSERT INTO tasks (id, pipeline_id, stage, title, description, agent_role, priority, max_retries, reply_jid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
     ),
     getTask: db.prepare<Task, [string]>(
       "SELECT * FROM tasks WHERE id = ?"
@@ -224,8 +233,8 @@ export function createStore(db: Database): Store {
     ),
 
     // Crons
-    insertCron: db.prepare<Cron, [string, string, string, string, number | null]>(
-      "INSERT INTO crons (id, name, schedule, task_template, next_run_at) VALUES (?, ?, ?, ?, ?) RETURNING *"
+    insertCron: db.prepare<Cron, [string, string, string, string, number, number | null]>(
+      "INSERT INTO crons (id, name, schedule, task_template, one_shot, next_run_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING *"
     ),
     getCron: db.prepare<Cron, [string]>(
       "SELECT * FROM crons WHERE id = ?"
@@ -291,7 +300,8 @@ export function createStore(db: Database): Store {
         input.description ?? null,
         input.agentRole ?? "coder",
         input.priority ?? 0,
-        input.maxRetries ?? 3
+        input.maxRetries ?? 3,
+        input.replyJid ?? null
       )!;
     },
 
@@ -494,7 +504,8 @@ export function createStore(db: Database): Store {
         input.name,
         input.schedule,
         JSON.stringify(input.taskTemplate),
-        null
+        input.oneShot ? 1 : 0,
+        input.nextRunAt ?? null
       )!;
     },
 

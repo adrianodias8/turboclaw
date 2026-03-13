@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   status TEXT NOT NULL DEFAULT 'pending',
   max_retries INTEGER NOT NULL DEFAULT 3,
   retry_count INTEGER NOT NULL DEFAULT 0,
+  reply_jid TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch('now')),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch('now')),
   FOREIGN KEY (pipeline_id) REFERENCES pipelines(id)
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS crons (
   schedule TEXT NOT NULL,
   task_template TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
+  one_shot INTEGER NOT NULL DEFAULT 0,
   last_run_at INTEGER,
   next_run_at INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch('now'))
@@ -123,3 +125,12 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);
 CREATE INDEX IF NOT EXISTS idx_alerts_kind ON alerts(kind);
 `;
+
+/**
+ * Migrations that add columns to existing tables.
+ * Each is run individually with error suppression for "duplicate column" errors.
+ */
+export const MIGRATIONS = [
+  "ALTER TABLE tasks ADD COLUMN reply_jid TEXT",
+  "ALTER TABLE crons ADD COLUMN one_shot INTEGER NOT NULL DEFAULT 0",
+];

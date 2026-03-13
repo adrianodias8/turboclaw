@@ -4,6 +4,7 @@ import type { Store } from "../tracker/store";
 import type { TurboClawConfig } from "../config";
 import { parseMessage, formatHelp } from "./parser";
 import { startNotifier, type NotifierHandle } from "./notifier";
+import { parseTimeReference } from "./time-parser";
 import { join } from "path";
 import { mkdirSync } from "fs";
 
@@ -48,6 +49,8 @@ export async function startWhatsAppBridge(
   let alertedThisSession = false;
   let reconnectAttempts = 0;
   const sentMessageIds = new Set<string>();
+  // Track which tasks came from WhatsApp and which chat to reply to
+  const whatsappTaskJids = new Map<string, string>();
 
   // Use pairing code method if we have a phone number in allowedNumbers
   const pairingNumber = waConfig.allowedNumbers[0] ?? null;
@@ -141,6 +144,7 @@ export async function startWhatsAppBridge(
           notifier = startNotifier(store, sendMessage, {
             notifyOnComplete: waConfig.notifyOnComplete,
             notifyOnFail: waConfig.notifyOnFail,
+            getTaskJid: (taskId) => whatsappTaskJids.get(taskId),
           });
         }
       }
@@ -171,14 +175,58 @@ export async function startWhatsAppBridge(
         let reply = "";
 
         switch (command.type) {
-          case "task": {
-            if (!command.args) {
-              reply = "Please provide a task title.";
+          case "prompt": {
+            // Check for time references like "in 5 minutes" or "at 14:30"
+            const scheduled = parseTimeReference(command.args);
+            if (scheduled) {
+              // Create a one-shot cron that fires at the scheduled time
+              const cronName = scheduled.prompt.length > 40
+                ? scheduled.prompt.slice(0, 37) + "..."
+                : scheduled.prompt;
+              store.createCron({
+                name: cronName,
+                schedule: "@once",
+                taskTemplate: {
+                  title: cronName,
+                  description: scheduled.prompt,
+                  replyJid: jid,
+                },
+                oneShot: true,
+                nextRunAt: scheduled.scheduledAt,
+              });
+              reply = `Got it, I'll do that in ${scheduled.humanDelay}.`;
               break;
             }
-            const task = store.createTask({ title: command.args });
+
+            // Immediate execution — create task with prompt as description
+            const title = command.args.length > 80
+              ? command.args.slice(0, 77) + "..."
+              : command.args;
+            const task = store.createTask({
+              title,
+              description: command.args,
+            });
             store.updateTaskStatus(task.id, "queued");
-            reply = `Task created: ${task.title}\nID: ${task.id.slice(0, 8)}\nStatus: queued`;
+            // Track which tasks came from WhatsApp so we can reply with output
+            whatsappTaskJids.set(task.id, jid);
+            reply = `On it...`;
+            break;
+          }
+          case "task": {
+            if (!command.args) {
+              reply = "Please provide a task description.";
+              break;
+            }
+            const title = command.args.length > 80
+              ? command.args.slice(0, 77) + "..."
+              : command.args;
+            const task = store.createTask({
+              title,
+              description: command.args,
+            });
+            store.updateTaskStatus(task.id, "queued");
+            whatsappTaskJids.set(task.id, jid);
+            reply = `On it...`;
             break;
           }
           case "status": {
@@ -218,7 +266,7 @@ export async function startWhatsAppBridge(
             reply = formatHelp();
             break;
           case "unknown":
-            reply = `Unknown command. ${formatHelp()}`;
+            reply = `Unknown command. Type /help for commands, or just send a message.`;
             break;
         }
 
@@ -234,16 +282,27 @@ export async function startWhatsAppBridge(
     });
   }
 
-  async function sendMessage(text: string): Promise<void> {
+  async function sendMessage(text: string, targetJid?: string): Promise<void> {
     if (!sock || !connected) return;
 
-    for (const num of waConfig.allowedNumbers) {
-      const jid = `${num}@s.whatsapp.net`;
+    if (targetJid) {
+      // Send to specific chat (reply to the conversation that triggered the task)
       try {
-        const sent = await sock.sendMessage(jid, { text });
+        const sent = await sock.sendMessage(targetJid, { text });
         if (sent?.key?.id) sentMessageIds.add(sent.key.id);
       } catch (err) {
-        logger.warn(`Failed to send to ${num}:`, err);
+        logger.warn(`Failed to send to ${targetJid}:`, err);
+      }
+    } else {
+      // Broadcast to all allowed numbers
+      for (const num of waConfig.allowedNumbers) {
+        const jid = `${num}@s.whatsapp.net`;
+        try {
+          const sent = await sock.sendMessage(jid, { text });
+          if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+        } catch (err) {
+          logger.warn(`Failed to send to ${num}:`, err);
+        }
       }
     }
   }
