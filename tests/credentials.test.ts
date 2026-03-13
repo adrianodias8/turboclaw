@@ -18,16 +18,21 @@ describe("resolveCredentialPaths", () => {
     expect(Array.isArray(paths)).toBe(true);
   });
 
-  it("returns empty for api-key providers", () => {
-    expect(resolveCredentialPaths("anthropic")).toEqual([]);
-    expect(resolveCredentialPaths("openai")).toEqual([]);
+  it("returns no provider-specific paths for api-key providers", () => {
+    // May include ~/.config/opencode as a common path if it exists on the host
+    const anthropicPaths = resolveCredentialPaths("anthropic");
+    expect(anthropicPaths.every(p => p.includes("opencode"))).toBe(true);
+    const openaiPaths = resolveCredentialPaths("openai");
+    expect(openaiPaths.every(p => p.includes("opencode"))).toBe(true);
   });
 
-  it("returns empty for ollama", () => {
-    expect(resolveCredentialPaths("ollama")).toEqual([]);
+  it("returns no provider-specific paths for ollama", () => {
+    const paths = resolveCredentialPaths("ollama");
+    expect(paths.every(p => p.includes("opencode"))).toBe(true);
   });
 
-  it("returns empty for unknown provider", () => {
-    expect(resolveCredentialPaths("unknown")).toEqual([]);
+  it("returns no provider-specific paths for unknown provider", () => {
+    const paths = resolveCredentialPaths("unknown");
+    expect(paths.every(p => p.includes("opencode"))).toBe(true);
   });
 });
