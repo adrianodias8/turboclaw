@@ -11,6 +11,7 @@ import { Crons } from "./screens/crons";
 import { Alerts } from "./screens/alerts";
 import { Settings } from "./screens/settings";
 import { Logs } from "./screens/logs";
+import { Memory } from "./screens/memory";
 import { useConfig } from "./hooks/use-config";
 import { useOrchestratorStatus } from "./hooks/use-orchestrator";
 import { useStatus } from "./hooks/use-tracker";
@@ -58,6 +59,7 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
         "4": "alerts",
         "5": "logs",
         "6": "settings",
+        "7": "memory",
       };
       if (screenMap[input]) {
         navigate(screenMap[input]);
@@ -96,6 +98,9 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
         )}
         {screen === "logs" && !taskDetailId && (
           <Logs store={store} />
+        )}
+        {screen === "memory" && !taskDetailId && (
+          <Memory config={config} />
         )}
       </Box>
 

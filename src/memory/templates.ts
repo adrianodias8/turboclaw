@@ -53,6 +53,31 @@ export function taskLogTemplate(id: string, taskId: string, title: string, summa
   return `${fm}\n\n# ${title}\n\n## Summary\n\n${summary}\n\n## Learnings\n\n${learnings}\n`;
 }
 
+export function coreTemplate(id: string, title: string, content: string, tags: string[]): string {
+  const fm = renderFrontmatter({
+    id,
+    type: "core" as NoteType,
+    tags,
+    created: Math.floor(Date.now() / 1000),
+    source: null,
+    title,
+  });
+  return `${fm}\n\n# ${title}\n\n${content}\n`;
+}
+
+export function weeklyTemplate(id: string, weekStart: string, entries: Array<{ title: string; summary: string }>, tags: string[]): string {
+  const fm = renderFrontmatter({
+    id,
+    type: "weekly-summary" as NoteType,
+    tags,
+    created: Math.floor(Date.now() / 1000),
+    source: null,
+    title: `Week of ${weekStart}`,
+  });
+  const entryLines = entries.map((e) => `- **${e.title}**: ${e.summary}`).join("\n");
+  return `${fm}\n\n# Week of ${weekStart}\n\n${entries.length} tasks completed.\n\n${entryLines}\n`;
+}
+
 export function mocTemplate(id: string, title: string, description: string, links: string[], tags: string[]): string {
   const fm = renderFrontmatter({
     id,

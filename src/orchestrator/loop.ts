@@ -6,7 +6,8 @@ import { validateSelfImproveTask, buildSelfImproveEnv, selfImprovePreamble } fro
 import { resolveCredentialPaths } from "../container/credentials";
 import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
-import { buildContext } from "../memory/context";
+import { buildContext, buildCoreContext } from "../memory/context";
+import { maybeCreateTaskMemory } from "../memory/auto-memory";
 import { advanceTask } from "../tracker/pipelines";
 import { sortTasks } from "./strategies";
 import { nextRunAt } from "./cron-parser";
@@ -112,8 +113,27 @@ export function startOrchestrator(
 
     const memoryVaultPath = join(config.home, "memory");
 
-    // Build prompt with memory context
+    // Build prompt with chat history and memory context
     let prompt = task.description ?? task.title;
+
+    // Inject recent conversation history for WhatsApp tasks
+    if (task.reply_jid) {
+      const history = store.getRecentChatMessages(task.reply_jid, 20);
+      const previous = history.filter(m => m.task_id !== task.id);
+      if (previous.length > 0) {
+        const lines = previous.map(m =>
+          m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`
+        );
+        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\nNow respond to this new message:\n\n${prompt}`;
+      }
+    }
+
+    // Inject core memory (always present)
+    const coreContext = buildCoreContext(memoryVaultPath);
+    if (coreContext) {
+      prompt = `${coreContext}\n\n---\n\n${prompt}`;
+    }
+
     const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
     if (memoryContext) {
       prompt = `${memoryContext}\n\n---\n\n${prompt}`;
@@ -174,6 +194,17 @@ export function startOrchestrator(
               advanceTask(store, task.id);
             } else {
               store.updateTaskStatus(task.id, "done");
+            }
+
+            // Auto-memory: write task log to vault
+            try {
+              const events = store.listEvents(run.id);
+              const output = events.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
+              if (output) {
+                maybeCreateTaskMemory(memoryVaultPath, task, output);
+              }
+            } catch (err) {
+              logger.warn(`Auto-memory failed for task ${task.id}:`, err);
             }
           } else {
             // On failure: retry if allowed, otherwise mark failed

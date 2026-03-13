@@ -5,6 +5,8 @@ import { existsSync } from "fs";
 import { join } from "path";
 import type { TurboClawConfig } from "../../config";
 import { saveConfig } from "../../config";
+import { initVault } from "../../memory/vault";
+import { createCoreNote } from "../../memory/writer";
 
 interface OnboardingProps {
   config: TurboClawConfig;
@@ -23,6 +25,10 @@ type Step =
   | "build-image"
   | "whatsapp"
   | "whatsapp-number"
+  | "core-name"
+  | "core-role"
+  | "core-context"
+  | "core-prefs"
   | "ready";
 
 const HOME = process.env.HOME ?? "~";
@@ -54,6 +60,9 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   const [buildMessage, setBuildMessage] = useState("");
   const [enableWhatsapp, setEnableWhatsapp] = useState<boolean | null>(null);
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [coreName, setCoreName] = useState("");
+  const [coreRole, setCoreRole] = useState("");
+  const [coreContext, setCoreContext] = useState("");
 
   // Step 1: Check Docker
   useEffect(() => {
@@ -277,7 +286,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       setEnableWhatsapp(false);
       config.whatsapp = { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false };
       saveConfig(config);
-      setStep("ready");
+      setStep("core-name");
     }
   };
 
@@ -292,6 +301,44 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       notifyOnFail: true,
     };
     saveConfig(config);
+    setStep("core-name");
+  };
+
+  const vaultPath = join(config.home, "memory");
+
+  const handleCoreName = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      setCoreName(trimmed);
+      initVault({ vaultPath });
+      createCoreNote(vaultPath, "user-name", "User Name", trimmed, ["core", "identity"]);
+    }
+    setStep("core-role");
+  };
+
+  const handleCoreRole = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      setCoreRole(trimmed);
+      createCoreNote(vaultPath, "user-role", "User Role", trimmed, ["core", "identity"]);
+    }
+    setStep("core-context");
+  };
+
+  const handleCoreContext = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      setCoreContext(trimmed);
+      createCoreNote(vaultPath, "project-context", "Project Context", trimmed, ["core", "project"]);
+    }
+    setStep("core-prefs");
+  };
+
+  const handleCorePrefs = (value: string) => {
+    const trimmed = value.trim();
+    if (trimmed) {
+      createCoreNote(vaultPath, "preferences", "Preferences", trimmed, ["core", "preferences"]);
+    }
     setStep("ready");
   };
 
@@ -452,6 +499,50 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         </Box>
       )}
 
+      {/* Core Memory: Name */}
+      {step === "core-name" && (
+        <Box flexDirection="column">
+          <Text bold>What's your name?</Text>
+          <Text dimColor>This helps agents address you. Press Enter to skip.</Text>
+          <Box marginTop={1}>
+            <TextInput placeholder="Your name" onSubmit={handleCoreName} />
+          </Box>
+        </Box>
+      )}
+
+      {/* Core Memory: Role */}
+      {step === "core-role" && (
+        <Box flexDirection="column">
+          <Text bold>What's your role?</Text>
+          <Text dimColor>e.g. Senior Developer, Data Scientist. Press Enter to skip.</Text>
+          <Box marginTop={1}>
+            <TextInput placeholder="Your role" onSubmit={handleCoreRole} />
+          </Box>
+        </Box>
+      )}
+
+      {/* Core Memory: Project Context */}
+      {step === "core-context" && (
+        <Box flexDirection="column">
+          <Text bold>Describe your project:</Text>
+          <Text dimColor>Brief description of what you're working on. Press Enter to skip.</Text>
+          <Box marginTop={1}>
+            <TextInput placeholder="Project description" onSubmit={handleCoreContext} />
+          </Box>
+        </Box>
+      )}
+
+      {/* Core Memory: Preferences */}
+      {step === "core-prefs" && (
+        <Box flexDirection="column">
+          <Text bold>Any preferences for how agents should work?</Text>
+          <Text dimColor>e.g. "Always use TypeScript", "Prefer functional style". Press Enter to skip.</Text>
+          <Box marginTop={1}>
+            <TextInput placeholder="Preferences (optional)" onSubmit={handleCorePrefs} />
+          </Box>
+        </Box>
+      )}
+
       {/* Done */}
       {step === "ready" && (
         <Box flexDirection="column">
@@ -470,6 +561,21 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           {ollamaModels.length > 0 && (
             <Text>
               Ollama models: <Text color="yellow">{ollamaModels.join(", ")}</Text>
+            </Text>
+          )}
+          {coreName && (
+            <Text>
+              Name: <Text color="cyan">{coreName}</Text>
+            </Text>
+          )}
+          {coreRole && (
+            <Text>
+              Role: <Text color="cyan">{coreRole}</Text>
+            </Text>
+          )}
+          {coreContext && (
+            <Text>
+              Project: <Text color="cyan">{coreContext.slice(0, 60)}{coreContext.length > 60 ? "..." : ""}</Text>
             </Text>
           )}
           <Box marginTop={1} />

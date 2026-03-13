@@ -1,4 +1,4 @@
-export type NoteType = "fleeting" | "permanent" | "task-log" | "moc";
+export type NoteType = "fleeting" | "permanent" | "task-log" | "moc" | "core" | "weekly-summary";
 
 export interface NoteFrontmatter {
   id: string;

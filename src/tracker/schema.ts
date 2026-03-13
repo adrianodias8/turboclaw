@@ -124,6 +124,17 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);
 CREATE INDEX IF NOT EXISTS idx_alerts_kind ON alerts(kind);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jid TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  task_id TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_jid ON chat_messages(jid);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_task_id ON chat_messages(task_id);
 `;
 
 /**

@@ -112,6 +112,15 @@ export interface Alert {
   created_at: number;
 }
 
+export interface ChatMessage {
+  id: number;
+  jid: string;
+  role: "user" | "assistant";
+  content: string;
+  task_id: string | null;
+  created_at: number;
+}
+
 export interface CreateCronInput {
   name: string;
   schedule: string;

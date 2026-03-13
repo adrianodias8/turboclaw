@@ -1,5 +1,18 @@
 import { searchByFullText, searchByTag } from "./search";
+import { listNotes } from "./vault";
 import type { SearchResult } from "./types";
+
+export function buildCoreContext(vaultPath: string): string {
+  const coreNotes = listNotes(vaultPath, "core");
+  if (coreNotes.length === 0) return "";
+
+  const sections = coreNotes.map((note) => {
+    const title = note.frontmatter.title ?? "Untitled";
+    return `## ${title}\n\n${note.content}`;
+  });
+
+  return `# Core Memory\n\n${sections.join("\n\n")}`;
+}
 
 export function buildContext(
   vaultPath: string,

@@ -30,7 +30,7 @@ async function bootHeadless() {
 
   const vaultPath = join(config.home, "memory");
   initVault({ vaultPath });
-  const librarian = startLibrarian(vaultPath);
+  const librarian = startLibrarian(vaultPath, config.memory);
 
   let whatsappBridge: WhatsAppBridge | null = null;
   if (config.whatsapp.enabled) {

@@ -173,6 +173,7 @@ export async function startWhatsAppBridge(
 
         const command = parseMessage(text);
         let reply = "";
+        let taskIdForChat: string | null = null;
 
         switch (command.type) {
           case "prompt": {
@@ -205,10 +206,12 @@ export async function startWhatsAppBridge(
             const task = store.createTask({
               title,
               description: command.args,
+              replyJid: jid,
             });
             store.updateTaskStatus(task.id, "queued");
             // Track which tasks came from WhatsApp so we can reply with output
             whatsappTaskJids.set(task.id, jid);
+            taskIdForChat = task.id;
             reply = `On it...`;
             break;
           }
@@ -223,9 +226,11 @@ export async function startWhatsAppBridge(
             const task = store.createTask({
               title,
               description: command.args,
+              replyJid: jid,
             });
             store.updateTaskStatus(task.id, "queued");
             whatsappTaskJids.set(task.id, jid);
+            taskIdForChat = task.id;
             reply = `On it...`;
             break;
           }
@@ -269,6 +274,9 @@ export async function startWhatsAppBridge(
             reply = `Unknown command. Type /help for commands, or just send a message.`;
             break;
         }
+
+        // Record user message in chat history
+        store.addChatMessage(jid, "user", text, taskIdForChat);
 
         if (reply) {
           try {

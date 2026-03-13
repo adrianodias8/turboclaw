@@ -1,8 +1,13 @@
+
+
 # TurboClaw
+
+<img src="turboclaw.png" alt="TurboClaw" width="480" />
+
 
 Dockerized AI agent runner with multi-provider support. Control it via TUI, REST API, or WhatsApp.
 
-TurboClaw spawns ephemeral Docker containers to run AI coding agents (OpenCode, Claude Code, or Codex) against your tasks. It handles scheduling, retries, concurrency, cron jobs, and long-term memory — so you can queue up work and let agents grind through it.
+TurboClaw spawns ephemeral Docker containers to run AI coding agents (OpenCode, Claude Code, or Codex) against your tasks. It handles scheduling, retries, concurrency, cron jobs, tiered memory, and WhatsApp notifications — so you can queue up work and let agents grind through it.
 
 ## Quick Start
 
@@ -10,7 +15,7 @@ TurboClaw spawns ephemeral Docker containers to run AI coding agents (OpenCode, 
 # Install dependencies
 bun install
 
-# First-time setup (checks Docker, picks AI provider)
+# First-time setup (checks Docker, picks AI provider, sets up core memory)
 bun run src/index.ts setup
 
 # Launch the TUI
@@ -26,37 +31,206 @@ bun run src/index.ts
 - **Retries** — automatic retry on failure with configurable limits
 - **Cron jobs** — recurring tasks on standard cron schedules (`*/30 * * * *`)
 - **Alerts** — automatic alerts on task failure, lease expiry, WhatsApp disconnect
-- **Memory** — Obsidian Zettelkasten vault for cross-task knowledge accumulation
+- **Tiered memory** — three-tier system (core/daily/weekly) with auto-pruning and TUI management
 - **Pipelines** — multi-stage workflows with gates between stages
 - **Self-improvement** — mount TurboClaw's own source into a container and let agents improve it
-- **WhatsApp** — send `/task Fix the login bug` from your phone, get notified when it's done
+- **WhatsApp** — send a message from your phone, get notified when it's done
 
 ## Architecture
 
 ```
-                    +-----------+
-                    |    TUI    |  ← Ink (React for CLIs)
-                    +-----+-----+
-                          |
-  WhatsApp ──→ Store ←── Gateway (REST API, port 7800)
-                 ↑
-           +-----+------+
-           | Orchestrator |  ← polls store, enforces policy
-           +-----+------+
-                 |
-           +-----+------+
-           |  Container  |  ← docker run per task
-           |  Manager    |
-           +-------------+
-                 |
-        Docker containers running
-        OpenCode / Claude Code / Codex
+┌──────────────────────────────────────────────────────────────────────┐
+│                         TurboClaw Host (Bun)                         │
+│                                                                      │
+│  ┌────────────┐   ┌──────────────┐   ┌──────────────┐               │
+│  │   TUI      │   │   Gateway    │   │  WhatsApp    │               │
+│  │  (Ink)     │   │  (REST API)  │   │  Bridge      │               │
+│  │ 7 screens  │   │  port 7800   │   │  (Baileys)   │               │
+│  └─────┬──────┘   └──────┬───────┘   └──────┬───────┘               │
+│        │                  │                   │                       │
+│        └──────────┬───────┴───────────────────┘                      │
+│                   ▼                                                   │
+│           ┌──────────────┐                                           │
+│           │   Tracker    │  ← Source of truth (bun:sqlite)           │
+│           │  tasks, runs │     tasks, runs, events, crons,           │
+│           │  events, etc │     alerts, leases, pipelines             │
+│           └──────┬───────┘                                           │
+│                  │                                                    │
+│           ┌──────▼───────┐     ┌──────────────┐                      │
+│           │ Orchestrator │────▶│  Container   │                      │
+│           │ (poll loop)  │     │  Manager     │                      │
+│           │ scheduling,  │     │  docker run  │                      │
+│           │ crons, retry │     │  per task    │                      │
+│           └──────────────┘     └──────┬───────┘                      │
+│                                       │                              │
+│           ┌───────────────────────────┼──────────────────────┐       │
+│           │  Memory Vault             │                      │       │
+│           │  ~/.turboclaw/memory/     │                      │       │
+│           │  ├── core/    (always)    │                      │       │
+│           │  ├── tasks/   (daily)     │                      │       │
+│           │  └── weekly/  (compiled)  │                      │       │
+│           └───────────────────────────┼──────────────────────┘       │
+├───────────────────────────────────────┼──────────────────────────────┤
+│  Docker containers                    │                              │
+│  ┌────────────────────────────────────▼────────────────────────────┐ │
+│  │  turboclaw-worker:latest                                        │ │
+│  │  OpenCode / Claude Code / Codex                                 │ │
+│  │  + opencode-browser + skill discovery CLIs                      │ │
+│  │  + /workspace (mounted) + /memory (mounted)                     │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 **Three strict layers:**
 - **Tracker** — source of truth (SQLite). Owns tasks, runs, events, crons, alerts.
 - **Orchestrator** — policy engine. Claims tasks, enforces concurrency, ticks crons, emits alerts.
 - **Agent** — executor. Ephemeral Docker container, one per task run.
+
+## Task Execution Flow
+
+```
+ User creates task                    Orchestrator claims task
+ (TUI / API / WhatsApp)              from queue
+        │                                    │
+        ▼                                    ▼
+  ┌──────────┐    poll    ┌──────────────────────────┐
+  │ Tracker   │◀──────────│ Orchestrator tick()      │
+  │ status:   │           │                          │
+  │ "queued"  │           │ 1. Sort by strategy      │
+  └──────────┘           │ 2. Claim task + lease    │
+                          │ 3. Build prompt:         │
+                          │    ┌─────────────────┐   │
+                          │    │ Core Memory     │   │
+                          │    │ (always inject) │   │
+                          │    ├─────────────────┤   │
+                          │    │ Search-based    │   │
+                          │    │ memory context  │   │
+                          │    ├─────────────────┤   │
+                          │    │ Chat history    │   │
+                          │    │ (if WhatsApp)   │   │
+                          │    ├─────────────────┤   │
+                          │    │ Task prompt     │   │
+                          │    └─────────────────┘   │
+                          │ 4. Spawn Docker container│
+                          └────────────┬─────────────┘
+                                       │
+                                       ▼
+                          ┌──────────────────────────┐
+                          │ Docker container          │
+                          │ - Runs agent CLI          │
+                          │ - Streams stdout/stderr   │
+                          │ - Writes to workspace     │
+                          └────────────┬─────────────┘
+                                       │
+                          ┌────────────▼─────────────┐
+                          │ On completion:            │
+                          │ - Mark task done/failed   │
+                          │ - Auto-memory: write      │
+                          │   task log to daily tier  │
+                          │ - Advance pipeline stage  │
+                          │ - Notify via WhatsApp     │
+                          │ - Retry if failed         │
+                          └──────────────────────────┘
+```
+
+## Memory System — Three Tiers
+
+TurboClaw uses a tiered memory system stored as an Obsidian-compatible vault at `~/.turboclaw/memory/`.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Memory Vault (~/.turboclaw/memory/)           │
+│                                                                  │
+│  ┌────────────────┐  ┌────────────────┐  ┌────────────────────┐ │
+│  │  CORE (core/)  │  │ DAILY (tasks/) │  │ WEEKLY (weekly/)   │ │
+│  │                │  │                │  │                    │ │
+│  │ User name      │  │ Auto-captured  │  │ Auto-compiled      │ │
+│  │ User role      │  │ task logs      │  │ weekly digests     │ │
+│  │ Project context│  │ from completed │  │ from daily notes   │ │
+│  │ Preferences    │  │ tasks          │  │                    │ │
+│  │                │  │                │  │                    │ │
+│  │ Injected:      │  │ Injected:      │  │ Injected:          │ │
+│  │  ALWAYS        │  │  search-based  │  │  search-based      │ │
+│  │                │  │                │  │                    │ │
+│  │ Lifecycle:     │  │ Lifecycle:     │  │ Lifecycle:          │ │
+│  │  permanent     │  │  auto-pruned   │  │  auto-pruned       │ │
+│  │  user-managed  │  │  after N days  │  │  after N weeks     │ │
+│  │                │  │  (default: 7)  │  │  (default: 4)      │ │
+│  │ Editable:      │  │ Editable:      │  │ Editable:          │ │
+│  │  full CRUD     │  │  view/delete   │  │  view/delete/regen │ │
+│  │  via TUI [7]   │  │  via TUI [7]   │  │  via TUI [7]      │ │
+│  └────────────────┘  └────────────────┘  └────────────────────┘ │
+│                                                                  │
+│  Librarian (runs every 5 min):                                   │
+│  - Promotes qualifying inbox notes to permanent                  │
+│  - Compiles previous week's summary if missing                   │
+│  - Prunes expired daily/weekly notes based on retention config   │
+│  - Detects unlinked related notes                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Memory Flow
+
+```
+Task completes
+      │
+      ▼
+Auto-memory creates task-log
+in tasks/ with tags:
+  [auto-memory, daily, daily-2026-03-13, ...]
+      │
+      │  After N days (configurable)
+      ▼
+Daily notes auto-pruned
+      │
+      │  Every Sunday (librarian)
+      ▼
+Weekly summary compiled
+from that week's daily notes
+into weekly/week-YYYY-MM-DD.md
+      │
+      │  After N weeks (configurable)
+      ▼
+Weekly notes auto-pruned
+```
+
+### Prompt Injection Order
+
+When a task runs, memory is injected into the prompt in this order:
+
+```
+┌───────────────────────────┐
+│ # Core Memory             │  ← Always injected (from core/)
+│ Name: Adriano             │
+│ Role: Senior Developer    │
+│ ...                       │
+├───────────────────────────┤
+│ ---                       │
+├───────────────────────────┤
+│ # Relevant Memory Notes   │  ← Search-based (from tasks/ + weekly/)
+│ Matched by keywords/tags  │
+├───────────────────────────┤
+│ ---                       │
+├───────────────────────────┤
+│ # Recent Conversation     │  ← Chat history (WhatsApp tasks only)
+├───────────────────────────┤
+│ ---                       │
+├───────────────────────────┤
+│ <actual task prompt>      │
+└───────────────────────────┘
+```
+
+### Managing Memory via TUI
+
+Press `[7]` to open the Memory screen. Switch between tiers with:
+
+| Key | Tab | Actions |
+|-----|-----|---------|
+| `c` | Core | `[n]` create, `[e]` edit, `[x]` delete, `[Enter]` view |
+| `d` | Daily | `[x]` delete, `[Enter]` view |
+| `w` | Weekly | `[x]` delete, `[r]` regenerate, `[Enter]` view |
+
+Core memories are also created during onboarding setup (name, role, project context, preferences).
 
 ## Supported Agents
 
@@ -83,6 +257,7 @@ Or toggle it in the TUI Settings screen.
 | `4` | Alerts | Unacknowledged alerts — acknowledge individually or all |
 | `5` | Logs | Live event stream from all recent runs |
 | `6` | Settings | Concurrency, strategy, agent type, WhatsApp, self-improve |
+| `7` | Memory | Browse/manage core, daily, and weekly memories |
 
 ## Headless Mode
 
@@ -120,7 +295,7 @@ Scan the QR code in the TUI, then send commands from your phone:
 - `/list` — recent tasks
 - `/cancel abc123` — cancel a task by ID prefix
 - `/help` — command reference
-- Any text without `/` — creates a task with that text as the title
+- Any text without `/` — creates a task with that text as the prompt
 
 ## Cron Jobs
 
@@ -155,16 +330,20 @@ Config lives at `~/.turboclaw/config.json`. Key settings:
   "provider": { "type": "anthropic", "apiKey": "sk-..." },
   "agent": "opencode",
   "selfImprove": { "enabled": false },
-  "whatsapp": { "enabled": false }
+  "whatsapp": { "enabled": false },
+  "memory": {
+    "dailyRetentionDays": 7,
+    "weeklyRetentionWeeks": 4
+  }
 }
 ```
 
-Environment variable overrides: `TURBOCLAW_GATEWAY_PORT=8080`, `TURBOCLAW_MAX_CONCURRENCY=4`.
+Environment variable overrides: `TURBOCLAW_GATEWAY_PORT=8080`, `TURBOCLAW_MAX_CONCURRENCY=4`, `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS=14`.
 
 ## Testing
 
 ```bash
-bun test                    # 108 tests across 11 files
+bun test                    # 152 tests across 15 files
 ```
 
 ## Tech Stack
@@ -174,19 +353,38 @@ bun test                    # 108 tests across 11 files
 - **TUI:** Ink + @inkjs/ui
 - **Containers:** Docker
 - **WhatsApp:** @whiskeysockets/baileys
-- **Memory:** Obsidian-compatible Zettelkasten vault (pure filesystem)
+- **Memory:** Obsidian-compatible Zettelkasten vault (pure filesystem, three tiers)
 
 ## Project Structure
 
 ```
 src/
-  tracker/       — SQLite schema, store, types (source of truth)
-  orchestrator/  — polling loop, cron parser, scheduling strategies
-  container/     — Docker management, agent command resolution, credentials
-  gateway/       — REST API (Bun.serve)
-  tui/           — Ink screens, components, hooks
-  memory/        — Obsidian vault, search, librarian
-  whatsapp/      — Baileys bridge, message parser, notifier
-docker/          — Worker Dockerfile
-tests/           — bun:test suites
+  index.ts         — entry point (TUI / headless / setup / task create)
+  config.ts        — config loader with memory retention settings
+  tracker/         — SQLite schema, store, types (source of truth)
+  orchestrator/    — polling loop, cron parser, scheduling strategies
+  container/       — Docker management, agent command resolution, credentials
+  gateway/         — REST API (Bun.serve)
+  tui/
+    app.tsx        — root component, 7-screen navigation
+    screens/
+      dashboard.tsx, tasks.tsx, task-detail.tsx, crons.tsx,
+      alerts.tsx, logs.tsx, settings.tsx, onboarding.tsx,
+      memory.tsx   — memory management (core/daily/weekly)
+    hooks/
+      use-memory.ts — polls vault notes by tier
+    components/
+      nav.tsx      — tab bar with [1]-[7] shortcuts
+  memory/
+    vault.ts       — init, read, write, list, delete notes
+    context.ts     — buildCoreContext() + buildContext()
+    writer.ts      — create core/fleeting/permanent/task-log notes
+    librarian.ts   — inbox processing, weekly compilation, pruning
+    scheduler.ts   — periodic librarian with retention config
+    auto-memory.ts — auto-capture task output with daily tags
+    search.ts      — full-text, tag, wikilink graph search
+    templates.ts   — frontmatter templates for all note types
+  whatsapp/        — Baileys bridge, message parser, notifier
+docker/            — Worker Dockerfile
+tests/             — 15 test files, 152 tests
 ```

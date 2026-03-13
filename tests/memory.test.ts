@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe("vault init", () => {
   it("creates all subdirectories", () => {
-    for (const dir of ["inbox", "notes", "projects", "tasks", "agents", "templates"]) {
+    for (const dir of ["inbox", "notes", "projects", "tasks", "agents", "templates", "core", "weekly"]) {
       expect(existsSync(join(TEST_VAULT, dir))).toBe(true);
     }
   });

@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 
-export type Screen = "dashboard" | "tasks" | "crons" | "alerts" | "logs" | "settings";
+export type Screen = "dashboard" | "tasks" | "crons" | "alerts" | "logs" | "settings" | "memory";
 
 const TABS: { key: Screen; label: string; shortcut: string }[] = [
   { key: "dashboard", label: "Dashboard", shortcut: "1" },
@@ -10,6 +10,7 @@ const TABS: { key: Screen; label: string; shortcut: string }[] = [
   { key: "alerts", label: "Alerts", shortcut: "4" },
   { key: "logs", label: "Logs", shortcut: "5" },
   { key: "settings", label: "Settings", shortcut: "6" },
+  { key: "memory", label: "Memory", shortcut: "7" },
 ];
 
 interface NavProps {

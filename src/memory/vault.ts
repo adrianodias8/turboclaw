@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlink
 import { join, relative } from "path";
 import type { VaultConfig, MemoryNote, NoteFrontmatter } from "./types";
 
-const VAULT_DIRS = ["inbox", "notes", "projects", "tasks", "agents", "templates"];
+const VAULT_DIRS = ["inbox", "notes", "projects", "tasks", "agents", "templates", "core", "weekly"];
 
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 

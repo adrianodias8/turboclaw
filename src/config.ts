@@ -29,6 +29,10 @@ export interface TurboClawConfig {
     notifyOnComplete: boolean;
     notifyOnFail: boolean;
   };
+  memory: {
+    dailyRetentionDays: number;
+    weeklyRetentionWeeks: number;
+  };
   dbPath: string;
 }
 
@@ -52,6 +56,10 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
     allowedNumbers: [],
     notifyOnComplete: false,
     notifyOnFail: false,
+  },
+  memory: {
+    dailyRetentionDays: 7,
+    weeklyRetentionWeeks: 4,
   },
 };
 
@@ -82,6 +90,7 @@ export function loadConfig(): TurboClawConfig {
     orchestrator: { ...DEFAULT_CONFIG.orchestrator, ...(fileConfig.orchestrator as Record<string, unknown> ?? {}) },
     selfImprove: { ...DEFAULT_CONFIG.selfImprove, ...(fileConfig.selfImprove as Record<string, unknown> ?? {}) },
     whatsapp: { ...DEFAULT_CONFIG.whatsapp, ...(fileConfig.whatsapp as Record<string, unknown> ?? {}) },
+    memory: { ...DEFAULT_CONFIG.memory, ...(fileConfig.memory as Record<string, unknown> ?? {}) },
     agent: (fileConfig.agent as TurboClawConfig["agent"]) ?? undefined,
   } as TurboClawConfig;
 
@@ -94,6 +103,12 @@ export function loadConfig(): TurboClawConfig {
   }
   if (process.env.TURBOCLAW_MAX_CONCURRENCY) {
     config.orchestrator.maxConcurrency = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
+  }
+  if (process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS) {
+    config.memory.dailyRetentionDays = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);
+  }
+  if (process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS) {
+    config.memory.weeklyRetentionWeeks = parseInt(process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS, 10);
   }
 
   return config;

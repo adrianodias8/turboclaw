@@ -1,7 +1,10 @@
 import { join } from "path";
-import { listNotes, readNote, deleteNote } from "./vault";
+import { existsSync } from "fs";
+import { listNotes, readNote, deleteNote, writeNote } from "./vault";
 import { createPermanentNote } from "./writer";
 import { findOrphans } from "./search";
+import { weeklyTemplate } from "./templates";
+import { newId } from "../ids";
 import { logger } from "../logger";
 import type { MemoryNote } from "./types";
 
@@ -68,6 +71,104 @@ export function pruneOrphans(vaultPath: string, minAgeSec: number = 604800): num
   }
 
   return pruned;
+}
+
+/**
+ * Get Monday of the week containing the given date.
+ */
+function getMondayOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // adjust when day is Sunday
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function formatDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Compile a weekly summary from task-log notes in the given week.
+ * Default: previous week (Mon–Sun).
+ */
+export function compileWeeklySummary(vaultPath: string, weekStartDate?: Date): string | null {
+  const now = new Date();
+  const monday = weekStartDate ?? (() => {
+    const prev = new Date(now);
+    prev.setDate(prev.getDate() - 7);
+    return getMondayOfWeek(prev);
+  })();
+
+  const weekStart = getMondayOfWeek(monday);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+
+  const weekStartTs = Math.floor(weekStart.getTime() / 1000);
+  const weekEndTs = Math.floor(weekEnd.getTime() / 1000);
+
+  const taskNotes = listNotes(vaultPath, "tasks");
+  const inRange = taskNotes.filter(
+    (n) => n.frontmatter.created >= weekStartTs && n.frontmatter.created < weekEndTs
+  );
+
+  if (inRange.length === 0) return null;
+
+  const entries = inRange.map((n) => ({
+    title: n.frontmatter.title ?? "Untitled",
+    summary: n.content.slice(0, 120).replace(/\n/g, " ").trim(),
+  }));
+
+  const weekStr = formatDateStr(weekStart);
+  const filename = `week-${weekStr}.md`;
+  const filePath = join(vaultPath, "weekly", filename);
+
+  const id = newId();
+  writeNote(filePath, weeklyTemplate(id, weekStr, entries, ["weekly-summary"]));
+
+  logger.info(`Compiled weekly summary: ${filename} (${entries.length} tasks)`);
+  return filePath;
+}
+
+/**
+ * Prune expired daily task-logs and weekly summaries based on retention config.
+ * Core notes are never auto-pruned.
+ */
+export function pruneExpiredMemories(
+  vaultPath: string,
+  dailyRetentionDays: number,
+  weeklyRetentionWeeks: number
+): { dailyPruned: number; weeklyPruned: number } {
+  const now = Math.floor(Date.now() / 1000);
+  let dailyPruned = 0;
+  let weeklyPruned = 0;
+
+  // Prune old task-log notes
+  const dailyCutoff = now - dailyRetentionDays * 86400;
+  const taskNotes = listNotes(vaultPath, "tasks");
+  for (const note of taskNotes) {
+    if (note.frontmatter.created < dailyCutoff) {
+      deleteNote(note.path);
+      dailyPruned++;
+    }
+  }
+
+  // Prune old weekly summaries
+  const weeklyCutoff = now - weeklyRetentionWeeks * 7 * 86400;
+  const weeklyNotes = listNotes(vaultPath, "weekly");
+  for (const note of weeklyNotes) {
+    if (note.frontmatter.created < weeklyCutoff) {
+      deleteNote(note.path);
+      weeklyPruned++;
+    }
+  }
+
+  if (dailyPruned > 0 || weeklyPruned > 0) {
+    logger.info(`Pruned ${dailyPruned} daily notes, ${weeklyPruned} weekly notes`);
+  }
+
+  return { dailyPruned, weeklyPruned };
 }
 
 /**

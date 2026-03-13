@@ -461,13 +461,15 @@ turboclaw setup
 
 | Screen | Key | Description |
 |--------|-----|-------------|
-| Dashboard | `d` | Overview: queue depth, active workers, recent tasks, system health |
-| Tasks | `t` | Task list with status indicators, create new task inline |
+| Dashboard | `1` | Overview: queue depth, active workers, recent tasks, system health |
+| Tasks | `2` | Task list with status indicators, create new task inline |
 | Task Detail | `Enter` on task | Run events stream, artifacts, retry/cancel actions |
-| Pipelines | `p` | View/create/edit pipeline stage definitions |
-| Settings | `s` | Edit config: provider keys, model selection, concurrency, scheduling strategy |
-| Logs | `l` | Live log viewer — streams events from all active runs |
-| Onboarding | auto on first run | Step-by-step wizard: check Docker, set provider keys, build worker image, create first pipeline |
+| Crons | `3` | Cron schedule CRUD — create, toggle, delete, run now |
+| Alerts | `4` | Unacknowledged alerts — acknowledge individually or all |
+| Logs | `5` | Live log viewer — streams events from all active runs |
+| Settings | `6` | Edit config: provider keys, model selection, concurrency, scheduling strategy |
+| Memory | `7` | Three-tier memory management: core/daily/weekly sub-tabs with full CRUD |
+| Onboarding | auto on first run | Step-by-step wizard: check Docker, set provider keys, build worker image, WhatsApp, core memory setup |
 
 **Navigation:**
 - Tab-based top navigation (Dashboard, Tasks, Pipelines, Settings, Logs)
@@ -515,11 +517,21 @@ The onboarding must be dead simple — 3 choices max to get running.
 - Shows progress: pulling base image → installing OpenCode → installing browser → fetching seed skills
 - Takes 2-5 minutes on first run
 
-**Step 4: Done!**
-- Creates a default pipeline (`plan → code → review → done`)
-- Offers to create a first test task ("Want to try it? I'll create a quick test task")
+**Step 4: WhatsApp (optional)**
+- Enable/disable WhatsApp bridge
+- Enter phone number for pairing
+
+**Step 5: Core Memory**
+- "What's your name?" → creates `core/user-name.md`
+- "What's your role?" → creates `core/user-role.md`
+- "Describe your project:" → creates `core/project-context.md`
+- "Any preferences?" → creates `core/preferences.md` (if non-empty)
+- All steps are skippable (press Enter to skip)
+
+**Step 6: Done!**
+- Shows summary: provider, agent, WhatsApp status, core memory info
 - Saves config to `~/.turboclaw/config.json`
-- Drops into the Dashboard screen
+- Ready to launch TUI
 
 **Key onboarding principles:**
 - Never ask for information you can detect automatically
@@ -571,7 +583,19 @@ For Copilot/ChatGPT/Claude subscriptions, TurboClaw runs `opencode auth login` i
 - Skills manifest (edit seed skill sources)
 - Self-improvement toggle (mount own source into workers)
 
-### 4.8 Self-Improvement Mode (`self-improve`)
+### 4.8 Memory Screen (`src/tui/screens/memory.tsx`)
+
+The TUI Memory screen (`[7]`) provides full management of the three-tier memory system.
+
+**Sub-tabs:** `[c] Core  [d] Daily  [w] Weekly`
+
+| Sub-tab | Lists | Actions |
+|---------|-------|---------|
+| Core | All notes from `core/` | `[n]` create, `[e]` edit, `[x]` delete, `[Enter]` view |
+| Daily | Task-log notes from `tasks/` sorted by date DESC | `[x]` delete, `[Enter]` view |
+| Weekly | Weekly summaries from `weekly/` | `[x]` delete, `[r]` regenerate, `[Enter]` view |
+
+### 4.9 Self-Improvement Mode (`self-improve`)
 
 TurboClaw can mount its own source code into worker containers, allowing agents to improve the project itself.
 
@@ -625,47 +649,58 @@ docker run --rm \
 **TUI integration:**
 The Settings screen has a "Self-Improvement" toggle. When enabled, a new option appears in the Tasks screen: "Improve TurboClaw" which creates a task with `agentRole: "self-improve"` and the project directory mounted as workspace.
 
-### 4.9 Memory System — Obsidian Zettelkasten (`src/memory/`)
+### 4.10 Memory System — Three-Tier Zettelkasten (`src/memory/`)
 
-TurboClaw uses an Obsidian vault as its long-term memory, structured as a Zettelkasten. Every piece of knowledge the agents accumulate — task learnings, codebase insights, error patterns, decision rationale — flows into interconnected atomic notes.
+TurboClaw uses an Obsidian-compatible vault as its long-term memory, organized in three tiers with automatic lifecycle management. Every piece of knowledge the agents accumulate flows into interconnected atomic notes with automatic compilation and pruning.
 
-**Why Obsidian:**
-- Vaults are just folders of markdown files — no proprietary format, no server needed
-- Agents read/write via filesystem (mounted into containers) — zero API overhead
-- You can browse and edit the knowledge base in Obsidian's UI alongside the agents
-- Graph view gives visual overview of the agent's knowledge topology
-- Fully portable — git-versionable, syncs anywhere
+**Three Memory Tiers:**
 
-**Vault location:** `~/.turboclaw/memory/` (an Obsidian vault)
+| Tier | Dir | Injected | Lifecycle | Editable |
+|------|-----|----------|-----------|----------|
+| **Core** | `core/` | Always (every prompt) | Permanent, user-managed | Full CRUD via TUI `[7]` |
+| **Daily** | `tasks/` | Search-based | Auto-captured on task completion, pruned after N days | View/delete via TUI |
+| **Weekly** | `weekly/` | Search-based | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
 
-**Zettelkasten structure:**
+**Vault location:** `~/.turboclaw/memory/`
+
+**Vault structure:**
 
 ```
 ~/.turboclaw/memory/
-├── .obsidian/                   # Obsidian config (auto-created)
-├── inbox/                       # Fleeting notes — raw agent observations
-│   └── 20260312-143022.md       # Timestamped, unprocessed
-├── notes/                       # Permanent notes — atomic, one idea each
-│   ├── error-docker-build-cache-invalidation.md
-│   ├── pattern-retry-with-exponential-backoff.md
-│   ├── decision-bun-over-node.md
-│   └── insight-ollama-context-window-4k-default.md
-├── projects/                    # Project-scoped MOCs (Maps of Content)
-│   ├── turboclaw.md             # Links to all TurboClaw-related notes
-│   └── openclaw-acea.md         # Links to OpenClaw/ACEA notes
-├── tasks/                       # Task execution logs (one per completed task)
-│   ├── task-abc123.md           # What was done, what was learned, links to notes
-│   └── task-def456.md
+├── core/                        # TIER 1: Core memory (always injected)
+│   ├── user-name.md             # Created during onboarding
+│   ├── user-role.md
+│   ├── project-context.md
+│   └── preferences.md
+├── tasks/                       # TIER 2: Daily task logs (search-based)
+│   ├── abc12345-fix-login-bug.md
+│   └── def45678-add-tests.md
+├── weekly/                      # TIER 3: Weekly digests (search-based)
+│   ├── week-2026-03-09.md
+│   └── week-2026-03-02.md
+├── inbox/                       # Fleeting notes (auto-promoted)
+├── notes/                       # Permanent notes (promoted from inbox)
+├── projects/                    # MOCs (Maps of Content)
 ├── agents/                      # Per-agent-role knowledge
-│   ├── coder.md                 # Patterns the coder agent has learned
-│   ├── reviewer.md              # Review heuristics
-│   └── self-improve.md          # Meta-learnings about improving TurboClaw
 └── templates/                   # Note templates
-    ├── fleeting.md
-    ├── permanent.md
-    ├── task-log.md
-    └── project-moc.md
 ```
+
+**Prompt injection order:**
+```
+# Core Memory              ← always injected (from core/)
+---
+# Relevant Memory Notes    ← search-based (from tasks/ + weekly/)
+---
+# Recent Conversation      ← chat history (WhatsApp tasks only)
+---
+<actual task prompt>
+```
+
+**Memory lifecycle:**
+- Core notes created during onboarding or TUI; never auto-pruned
+- Daily task-logs auto-created when tasks complete, tagged `[auto-memory, daily, daily-YYYY-MM-DD]`
+- Weekly summaries auto-compiled by librarian from previous week's daily notes
+- Pruning runs on librarian interval: daily notes > `dailyRetentionDays`, weekly notes > `weeklyRetentionWeeks * 7` days
 
 **Note format (permanent note example):**
 
@@ -763,12 +798,8 @@ This is optional — the filesystem approach works without Obsidian running.
 ```json
 {
   "memory": {
-    "enabled": true,
-    "vaultPath": "~/.turboclaw/memory",
-    "mcpEnabled": false,
-    "contextNotesLimit": 5,
-    "autoProcessInbox": true,
-    "librarianInterval": "daily"
+    "dailyRetentionDays": 7,
+    "weeklyRetentionWeeks": 4
   }
 }
 ```
@@ -795,11 +826,12 @@ turboclaw/
 │   │   ├── cli.tsx              # CLI entry: parses args, renders <App/>
 │   │   ├── screens/
 │   │   │   ├── dashboard.tsx    # Overview: queue depth, active workers, recent tasks
-│   │   │   ├── onboarding.tsx   # First-run wizard: provider keys, Docker check, build image
+│   │   │   ├── onboarding.tsx   # First-run wizard: provider keys, Docker check, build image, core memory
 │   │   │   ├── settings.tsx     # Edit config: providers, concurrency, scheduling
 │   │   │   ├── tasks.tsx        # Task list with status, create new task
 │   │   │   ├── task-detail.tsx  # Single task: run events stream, artifacts
 │   │   │   ├── pipelines.tsx    # Pipeline list, create/edit pipeline stages
+│   │   │   ├── memory.tsx       # Three-tier memory management (core/daily/weekly)
 │   │   │   └── logs.tsx         # Live log viewer (SSE from runs)
 │   │   ├── components/
 │   │   │   ├── nav.tsx          # Tab-based navigation bar
@@ -810,7 +842,8 @@ turboclaw/
 │   │   └── hooks/
 │   │       ├── use-tracker.ts   # Hook wrapping tracker store queries
 │   │       ├── use-orchestrator.ts # Hook for orchestrator status
-│   │       └── use-config.ts    # Hook for reading/writing config
+│   │       ├── use-config.ts    # Hook for reading/writing config
+│   │       └── use-memory.ts    # Hook for polling memory vault notes by tier
 │   │
 │   ├── tracker/
 │   │   ├── schema.sql           # SQLite DDL (embedded)
@@ -828,13 +861,15 @@ turboclaw/
 │   │   └── types.ts
 │   │
 │   ├── memory/
-│   │   ├── vault.ts             # Obsidian vault filesystem operations
+│   │   ├── vault.ts             # Obsidian vault filesystem operations (core/, weekly/ dirs)
 │   │   ├── search.ts            # Full-text search + tag search + link traversal
-│   │   ├── writer.ts            # Create/update notes (fleeting, permanent, task-log)
-│   │   ├── context.ts           # Build memory context for task prompts
-│   │   ├── librarian.ts         # Process inbox, distill fleeting → permanent
-│   │   ├── templates.ts         # Note templates (frontmatter + body)
-│   │   └── types.ts
+│   │   ├── writer.ts            # Create/update notes (fleeting, permanent, task-log, core)
+│   │   ├── context.ts           # buildCoreContext() + buildContext() for prompts
+│   │   ├── auto-memory.ts       # Auto-capture task output with daily tags
+│   │   ├── librarian.ts         # Inbox processing, weekly compilation, pruning
+│   │   ├── scheduler.ts         # Periodic librarian with retention config
+│   │   ├── templates.ts         # Note templates (fleeting, permanent, task-log, moc, core, weekly)
+│   │   └── types.ts             # NoteType includes "core" | "weekly-summary"
 │   │
 │   └── gateway/
 │       ├── server.ts            # Bun.serve() HTTP server
@@ -904,12 +939,8 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
     "createPR": true
   },
   "memory": {
-    "enabled": true,
-    "vaultPath": "~/.turboclaw/memory",
-    "mcpEnabled": false,
-    "contextNotesLimit": 5,
-    "autoProcessInbox": true,
-    "librarianInterval": "daily"
+    "dailyRetentionDays": 7,
+    "weeklyRetentionWeeks": 4
   }
 }
 ```

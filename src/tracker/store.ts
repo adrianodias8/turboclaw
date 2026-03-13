@@ -11,6 +11,7 @@ import type {
   Gate,
   Cron,
   Alert,
+  ChatMessage,
   CreateTaskInput,
   CreatePipelineInput,
   CreateCronInput,
@@ -82,6 +83,8 @@ export interface Store {
 
   // Monitoring
   getFailedTasks(limit?: number): Task[];
+  getRecentlyDoneTasks(sinceTs: number, limit?: number): Task[];
+  getRecentlyFailedTasks(sinceTs: number, limit?: number): Task[];
   getExpiredLeases(): Lease[];
   getActiveRuns(): Run[];
   getHealthStatus(): { queueDepth: number; activeWorkers: number; failedCount: number; runningCount: number };
@@ -101,6 +104,11 @@ export interface Store {
   acknowledgeAlert(id: number): void;
   acknowledgeAllAlerts(): void;
   getUnacknowledgedAlertCount(): number;
+
+  // Chat messages
+  addChatMessage(jid: string, role: "user" | "assistant", content: string, taskId?: string | null): ChatMessage;
+  getRecentChatMessages(jid: string, limit?: number): ChatMessage[];
+  getChatMessageForTask(taskId: string): ChatMessage | null;
 }
 
 export function createStore(db: Database): Store {
@@ -219,6 +227,12 @@ export function createStore(db: Database): Store {
     failedTasks: db.prepare<Task, [number]>(
       "SELECT * FROM tasks WHERE status = 'failed' ORDER BY updated_at DESC LIMIT ?"
     ),
+    recentlyDoneTasks: db.prepare<Task, [number, number]>(
+      "SELECT * FROM tasks WHERE status = 'done' AND updated_at >= ? ORDER BY updated_at DESC LIMIT ?"
+    ),
+    recentlyFailedTasks: db.prepare<Task, [number, number]>(
+      "SELECT * FROM tasks WHERE status = 'failed' AND updated_at >= ? ORDER BY updated_at DESC LIMIT ?"
+    ),
     expiredLeases: db.prepare<Lease, []>(
       "SELECT * FROM leases WHERE released = 0 AND expires_at < unixepoch('now')"
     ),
@@ -273,6 +287,19 @@ export function createStore(db: Database): Store {
     ),
     unackAlertCount: db.prepare<{ count: number }, []>(
       "SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0"
+    ),
+
+    // Chat messages
+    insertChatMessage: db.prepare<ChatMessage, [string, string, string, string | null]>(
+      "INSERT INTO chat_messages (jid, role, content, task_id) VALUES (?, ?, ?, ?) RETURNING *"
+    ),
+    recentChatMessages: db.prepare<ChatMessage, [string, number]>(
+      `SELECT * FROM (
+        SELECT * FROM chat_messages WHERE jid = ? ORDER BY id DESC LIMIT ?
+      ) sub ORDER BY id ASC`
+    ),
+    chatMessageForTask: db.prepare<ChatMessage, [string]>(
+      "SELECT * FROM chat_messages WHERE task_id = ? AND role = 'user' LIMIT 1"
     ),
   };
 
@@ -479,6 +506,14 @@ export function createStore(db: Database): Store {
       return stmts.failedTasks.all(limit);
     },
 
+    getRecentlyDoneTasks(sinceTs, limit = 50) {
+      return stmts.recentlyDoneTasks.all(sinceTs, limit);
+    },
+
+    getRecentlyFailedTasks(sinceTs, limit = 50) {
+      return stmts.recentlyFailedTasks.all(sinceTs, limit);
+    },
+
     getExpiredLeases() {
       return stmts.expiredLeases.all();
     },
@@ -556,6 +591,19 @@ export function createStore(db: Database): Store {
 
     getUnacknowledgedAlertCount() {
       return stmts.unackAlertCount.get()!.count;
+    },
+
+    // Chat messages
+    addChatMessage(jid, role, content, taskId) {
+      return stmts.insertChatMessage.get(jid, role, content, taskId ?? null)!;
+    },
+
+    getRecentChatMessages(jid, limit = 20) {
+      return stmts.recentChatMessages.all(jid, limit);
+    },
+
+    getChatMessageForTask(taskId) {
+      return stmts.chatMessageForTask.get(taskId) ?? null;
     },
   };
 }

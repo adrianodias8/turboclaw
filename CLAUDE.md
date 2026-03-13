@@ -45,7 +45,7 @@ Spawns Docker containers running the configured agent CLI. Each task gets its ow
 REST API via `Bun.serve()`. Thin layer over tracker operations. SSE for event streaming.
 
 ### TUI (`src/tui/`)
-Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Six screens: Dashboard, Tasks, Crons, Alerts, Logs, Settings.
+Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Seven screens: Dashboard, Tasks, Crons, Alerts, Logs, Settings, Memory.
 
 **Key rules for TUI code:**
 - All screens are React functional components using Ink's `<Box>` and `<Text>` primitives
@@ -87,7 +87,7 @@ src/
     cli.tsx         — CLI arg parsing, calls render(<App/>)
     screens/
       dashboard.tsx — two-column: health metrics, active runs, completions, crons
-      onboarding.tsx — first-run wizard (Docker check, provider pick, cred verify)
+      onboarding.tsx — first-run wizard (Docker check, provider pick, cred verify, core memory setup)
       settings.tsx  — config editor (providers, concurrency, agent type, WhatsApp toggle)
       tasks.tsx     — task list, create inline
       task-detail.tsx — single task: events, artifacts, retry/cancel
@@ -95,8 +95,9 @@ src/
       alerts.tsx    — alert list, color-coded, acknowledge actions
       pipelines.tsx — pipeline CRUD (accessible from settings)
       logs.tsx      — live event stream viewer
+      memory.tsx    — three-tier memory management (core/daily/weekly sub-tabs)
     components/
-      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Alerts [5] Logs [6] Settings
+      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Alerts [5] Logs [6] Settings [7] Memory
       status-bar.tsx — bottom bar: queue, workers, uptime, alert badge, provider, WA status
       task-row.tsx  — single row in task list
       event-stream.tsx — scrollable log
@@ -106,6 +107,7 @@ src/
       use-health.ts — health status, active runs, alert count, cron list, alert list
       use-orchestrator.ts — orchestrator status polling
       use-config.ts — read/write config
+      use-memory.ts — polls memory vault notes by tier (core/daily/weekly)
 
   tracker/
     schema.ts       — DDL as a string constant, applied on boot
@@ -133,14 +135,15 @@ src/
     types.ts        — request/response shapes
 
   memory/
-    vault.ts        — open vault, list notes, read/write markdown files
+    vault.ts        — open vault, list notes, read/write markdown files (dirs: inbox, notes, projects, tasks, agents, templates, core, weekly)
     search.ts       — full-text search, tag lookup, wikilink graph traversal
-    writer.ts       — create notes from templates (fleeting, permanent, task-log)
-    context.ts      — build context string for task prompts from relevant notes
-    librarian.ts    — inbox processing, link discovery, orphan detection
-    scheduler.ts    — periodic librarian runner
-    templates.ts    — note template strings with frontmatter
-    types.ts        — MemoryNote, VaultConfig, SearchResult
+    writer.ts       — create notes from templates (fleeting, permanent, task-log, core) + updateNoteContent()
+    context.ts      — buildCoreContext() (always injected) + buildContext() (search-based)
+    auto-memory.ts  — auto-capture task output with daily + date tags
+    librarian.ts    — inbox processing, link discovery, orphan detection, weekly compilation, expired memory pruning
+    scheduler.ts    — periodic librarian runner with retention config (dailyRetentionDays, weeklyRetentionWeeks)
+    templates.ts    — note template strings with frontmatter (fleeting, permanent, task-log, moc, core, weekly)
+    types.ts        — MemoryNote, VaultConfig, SearchResult; NoteType includes "core" | "weekly-summary"
 
   whatsapp/
     bridge.ts       — main WhatsApp bridge (Baileys + reconnect + QR callback)
@@ -238,9 +241,34 @@ The container includes `openskills` and `opencode-skillful` CLIs. Agents can sea
 
 TurboClaw can mount its own source code into worker containers so agents can improve the project itself. Enabled via config or TUI toggle. Always creates a feature branch, never touches main.
 
-## Memory System — Obsidian Zettelkasten (`src/memory/`)
+## Memory System — Three-Tier Zettelkasten (`src/memory/`)
 
-TurboClaw's long-term memory is an Obsidian vault at `~/.turboclaw/memory/`, structured as a Zettelkasten. Pure filesystem — no Obsidian app dependency.
+TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/memory/`, organized in three tiers. Pure filesystem — no Obsidian app dependency.
+
+### Three Memory Tiers
+
+| Tier | Dir | Injected | Lifecycle | Editable |
+|------|-----|----------|-----------|----------|
+| **Core** | `core/` | Always (every prompt) | Permanent, user-managed | Full CRUD via TUI |
+| **Daily** | `tasks/` | Search-based | Auto-captured on task completion, pruned after N days | View/delete via TUI |
+| **Weekly** | `weekly/` | Search-based | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
+
+### Prompt Injection Order
+```
+# Core Memory              ← always injected (from core/)
+---
+# Relevant Memory Notes    ← search-based (from tasks/ + weekly/)
+---
+# Recent Conversation      ← chat history (WhatsApp tasks only)
+---
+<actual task prompt>
+```
+
+### Memory Lifecycle
+- **Core notes** are created during onboarding (name, role, context, preferences) or via TUI Memory screen `[7]`
+- **Daily notes** are auto-generated when tasks complete, tagged with `daily-YYYY-MM-DD`
+- **Weekly summaries** are compiled by the librarian from the previous week's daily notes
+- **Pruning** runs on the librarian interval: daily notes older than `dailyRetentionDays`, weekly notes older than `weeklyRetentionWeeks * 7` days
 
 ## Configuration
 
@@ -258,8 +286,11 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   provider: { type: "anthropic", apiKey?: "...", baseUrl?: "...", model?: "..." } | null,
   agent: "opencode" | "claude-code" | "codex",  // optional, defaults to "opencode"
   whatsapp: { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false },
+  memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
 }
 ```
+
+Env var overrides for memory: `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS`, `TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS`.
 
 ### Provider Types
 
@@ -320,18 +351,19 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 ## Testing Strategy
 
 ```bash
-bun test                           # all tests (108 passing)
-bun test tests/tracker.test.ts     # tracker CRUD
-bun test tests/crons.test.ts       # cron CRUD
-bun test tests/alerts.test.ts      # alert CRUD
-bun test tests/cron-parser.test.ts # cron expression parsing
-bun test tests/pipelines.test.ts   # pipeline stage advancement
-bun test tests/memory.test.ts      # memory vault operations
-bun test tests/credentials.test.ts # credential path resolution
-bun test tests/self-improve.test.ts # self-improve validation
-bun test tests/orchestrator.test.ts # scheduling strategies
-bun test tests/gateway.test.ts     # API routes
-bun test tests/container.test.ts   # container manager
+bun test                              # all tests (152 passing across 15 files)
+bun test tests/tracker.test.ts        # tracker CRUD
+bun test tests/crons.test.ts          # cron CRUD
+bun test tests/alerts.test.ts         # alert CRUD
+bun test tests/cron-parser.test.ts    # cron expression parsing
+bun test tests/pipelines.test.ts      # pipeline stage advancement
+bun test tests/memory.test.ts         # memory vault operations
+bun test tests/memory-tiers.test.ts   # core/daily/weekly memory tiers
+bun test tests/credentials.test.ts    # credential path resolution
+bun test tests/self-improve.test.ts   # self-improve validation
+bun test tests/orchestrator.test.ts   # scheduling strategies
+bun test tests/gateway.test.ts        # API routes
+bun test tests/container.test.ts      # container manager
 ```
 
 ## Deployment Target

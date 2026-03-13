@@ -54,12 +54,12 @@ These are the gaps between "code exists" and "you can actually use it":
 
 ## Memory System
 
-- [ ] **Post-task hooks** — after a task completes, automatically create a task-log note in the vault summarizing what the agent did and learned
 - [ ] **Memory relevance scoring** — better algorithm for selecting which notes to inject as context (currently just keyword/tag match)
-- [ ] **Memory size limits** — prune old fleeting notes, cap vault size, summarize long notes
 - [ ] **Cross-project memory** — share learnings across different project workspaces
-- [ ] **Memory search in TUI** — dedicated screen or command palette integration to browse the Zettelkasten vault
-- [ ] **Librarian auto-scheduling** — run the librarian as a cron job rather than a fixed-interval timer
+- [ ] **Memory search in TUI** — add search/filter within the Memory screen (currently just list browsing)
+- [ ] **Memory export/import** — backup and restore memory vault
+- [ ] **Core memory templates** — pre-built core memory templates for common roles (frontend dev, data scientist, etc.)
+- [ ] **Memory statistics** — show memory vault stats on dashboard (note count, vault size, graph density)
 
 ## Infrastructure & Operations
 
@@ -98,4 +98,12 @@ These are the gaps between "code exists" and "you can actually use it":
 - [x] Cron engine (parser, scheduler, TUI screen)
 - [x] Alert system (auto-emit, TUI screen, acknowledge)
 - [x] WhatsApp bridge (Baileys, commands, notifications, QR in TUI)
-- [x] TUI overhaul (6-screen nav, two-column dashboard, health hooks, status bar with alerts/provider/WA)
+- [x] TUI overhaul (7-screen nav, two-column dashboard, health hooks, status bar with alerts/provider/WA)
+- [x] Three-tier memory system (core/daily/weekly with auto-pruning)
+- [x] Memory TUI screen with sub-tabs (core CRUD, daily view/delete, weekly view/delete/regen)
+- [x] Core memory onboarding integration (name, role, context, preferences)
+- [x] Auto-memory daily tagging (daily-YYYY-MM-DD tags on task logs)
+- [x] Weekly summary auto-compilation by librarian
+- [x] Memory retention config + env var overrides
+- [x] Core memory always-inject into task prompts
+- [x] WhatsApp notifier fix (dedicated queries for recently-completed tasks + dedup)

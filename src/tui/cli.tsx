@@ -23,7 +23,7 @@ export function renderApp(config: TurboClawConfig) {
 
   const vaultPath = join(config.home, "memory");
   initVault({ vaultPath });
-  const librarian = startLibrarian(vaultPath);
+  const librarian = startLibrarian(vaultPath, config.memory);
 
   const startedAt = Math.floor(Date.now() / 1000);
 

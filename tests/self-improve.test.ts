@@ -12,6 +12,7 @@ function makeConfig(selfImproveEnabled: boolean): TurboClawConfig {
     selfImprove: { enabled: selfImproveEnabled },
     provider: null,
     whatsapp: { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false },
+    memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
   };
 }
 
