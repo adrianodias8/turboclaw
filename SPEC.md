@@ -9,8 +9,8 @@
 **Runtime:** Bun (latest)
 **Database:** Bun built-in SQLite (`bun:sqlite`)
 **Container runtime:** Docker (required)
-**Agent runtime:** OpenCode (https://opencode.ai)
-**Browser automation:** opencode-browser plugin (https://github.com/different-ai/opencode-browser)
+**Agent runtime:** Claude Code (default; OpenCode and Codex planned)
+**Browser automation:** Not yet implemented (planned: opencode-browser or Playwright)
 
 ---
 
@@ -25,7 +25,7 @@
 ### From NanoClaw: what we DON'T take
 - No "skills over features" contribution model (NanoClaw's pattern where contributors submit skill files like `/add-telegram` instead of code PRs — we accept normal code contributions)
 - No Apple Container dependency
-- No Claude Code / Anthropic Agents SDK dependency
+- No Anthropic Agents SDK dependency (we use Claude Code CLI directly)
 
 ### From NullClaw: strict separation of concerns
 ```
@@ -35,11 +35,9 @@ agent = executor                  (OpenCode in Docker)
 ```
 
 ### Our additions
-- OpenCode as the agent runtime (not Claude Code)
-- opencode-browser plugin pre-installed in containers
-- **Runtime skill discovery** — agents inside Docker can search and install skills from popular marketplaces on-the-fly while executing tasks
-- Custom project-level and global skills are fully supported via OpenCode's native skill system
-- Bun-native everything (no Node.js, no npm at the host level)
+- Claude Code as the default agent runtime (OpenCode and Codex planned)
+- Three-tier memory system (core/daily/weekly) for persistent agent context
+- Bun-native everything (no Node.js, no npm at the host level; Node.js only inside worker containers for Claude Code CLI)
 
 ---
 
@@ -69,12 +67,10 @@ agent = executor                  (OpenCode in Docker)
 │  ┌─────────────────────────▼──────────────────────────┐ │
 │  │  turboclaw-worker:latest                          │ │
 │  │                                                     │ │
-│  │  ├── OpenCode (CLI)                                │ │
-│  │  ├── opencode-browser (agent-browser backend)      │ │
-│  │  ├── openskills + skills CLI (runtime discovery)   │ │
-│  │  ├── Seed skills (base set from manifest)          │ │
-│  │  ├── Bun runtime                                   │ │
-│  │  └── /workspace (mounted from host per-task)       │ │
+│  │  ├── Claude Code CLI (@anthropic-ai/claude-code)   │ │
+│  │  ├── Bun runtime + Node.js 22                      │ │
+│  │  ├── /workspace (mounted from host per-task)       │ │
+│  │  └── /memory (mounted from host, read-write)       │ │
 │  └─────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -259,7 +255,7 @@ Manages Docker lifecycle for agent workers.
 **Container spawn flow:**
 1. Create workspace directory: `~/.turboclaw/workspaces/{task_id}/`
 2. Mount workspace + task context into container
-3. Run OpenCode in non-interactive/headless mode with the task prompt
+3. Run the configured agent CLI (OpenCode, Claude Code, or Codex) with the task prompt
 4. Stream stdout/stderr back as events to tracker
 5. Collect artifacts from workspace on completion
 
@@ -268,18 +264,15 @@ Manages Docker lifecycle for agent workers.
 ```bash
 docker run --rm \
   --name turboclaw-worker-{task_id} \
-  -e OPENCODE_PROVIDER=... \
-  -e OPENCODE_MODEL=... \
   -e ANTHROPIC_API_KEY=... \
-  -e OPENAI_API_KEY=... \
   -v ~/.turboclaw/workspaces/{task_id}:/workspace \
-  -v ~/.turboclaw/skills:/home/turboclaw/.turboclaw-host-skills:ro \
+  -v ~/.turboclaw/memory:/memory:rw \
   --network=turboclaw-net \
   turboclaw-worker:latest \
-  opencode --yes --message "{task_prompt}"
+  claude -p "{task_prompt}" --allowedTools ... --output-format stream-json
 ```
 
-Note: Host skills are mounted read-only as a reference layer. The agent can install additional skills at runtime into the container's own `~/.config/opencode/skills/` (ephemeral, lost when container exits). To persist discovered skills, the agent can copy them to `/workspace/.opencode/skills/`.
+Note: The agent command is resolved by `agent-commands.ts` based on the configured agent type. The example above shows the default Claude Code command.
 
 ### 4.4 Worker Docker Image (`docker/`)
 
@@ -288,124 +281,43 @@ Note: Host skills are mounted read-only as a reference layer. The agent can inst
 ```dockerfile
 FROM oven/bun:latest
 
-# System deps
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-  curl git chromium \
-  && rm -rf /var/lib/apt/lists/*
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode
-RUN curl -fsSL https://opencode.ai/install | bash
+# Install Node.js (Claude Code CLI requires it)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Create turboclaw user
-RUN useradd -m -s /bin/bash turboclaw
-USER turboclaw
-WORKDIR /home/turboclaw
+# Install Claude Code CLI globally via npm
+RUN npm install -g @anthropic-ai/claude-code
 
-# Install opencode-browser (agent-browser backend for headless)
-RUN bun install -g @different-ai/opencode-browser agent-browser
-RUN agent-browser install || true
+# Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash agent
 
-# Install skill discovery CLIs (available at runtime for on-the-fly fetching)
-RUN bun install -g openskills skills opencode-skillful
+# Create workspace and memory directories
+RUN mkdir -p /workspace /memory && chown agent:agent /workspace /memory
 
-# Seed skills from manifest (base set baked into image)
-COPY --chown=turboclaw config/skills-manifest.json /tmp/skills-manifest.json
-COPY --chown=turboclaw scripts/fetch-skills.ts /tmp/fetch-skills.ts
-RUN bun run /tmp/fetch-skills.ts
-
-# OpenCode config with browser plugin + skillful plugin
-COPY --chown=turboclaw config/opencode.json /home/turboclaw/.config/opencode/opencode.json
-
-# Set browser backend to agent (headless Playwright)
-ENV OPENCODE_BROWSER_BACKEND=agent
-ENV HOME=/home/turboclaw
-
+USER agent
 WORKDIR /workspace
-ENTRYPOINT ["opencode"]
+
+# No fixed entrypoint — container manager passes the full command
+CMD ["echo", "No command provided"]
 ```
 
-**opencode.json for worker:**
+> **Note:** The current worker image only supports Claude Code. OpenCode and Codex support, browser automation, and the skills system are planned for future iterations (see Iteration Plan).
 
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": [
-    "@different-ai/opencode-browser",
-    "opencode-skillful"
-  ],
-  "permission": {
-    "skill": {
-      "*": "allow"
-    }
-  }
-}
-```
+### 4.5 Skills System (Planned)
 
-### 4.5 Skills System
+> **Status:** Not yet implemented. The skills system is planned for a future iteration when OpenCode agent support is added. Currently, worker containers run Claude Code which uses its own tool system.
 
-Skills work in two tiers: a **seed set** baked into the Docker image, and **runtime discovery** where the agent can search and install skills on-the-fly from marketplaces during task execution.
+The planned skills system will work in two tiers: a **seed set** baked into the Docker image, and **runtime discovery** where the agent can search and install skills on-the-fly from marketplaces during task execution. This requires OpenCode as the agent runtime.
 
-#### Tier 1: Seed Skills (Docker build time)
-
-A base set of commonly-needed skills is pre-installed into the worker image via `scripts/fetch-skills.ts`. This ensures agents have useful skills available immediately without network latency on every task.
-
-**Manifest file (`config/skills-manifest.json`):**
-
-```json
-{
-  "openskills": [
-    "anthropics/skills",
-    "numman-ali/n-skills"
-  ],
-  "github": [
-    "anthropics/skills",
-    "vercel-labs/agent-skills"
-  ],
-  "npm": [
-    "opencode-skillful"
-  ],
-  "custom": []
-}
-```
-
-The fetcher script:
-1. Reads the manifest
-2. For each openskills source: runs `bunx openskills install <source> --global -y`
-3. For each GitHub repo: clones sparse, copies `skills/*/SKILL.md` to `~/.config/opencode/skills/`
-4. For each npm package: installs globally
-5. Deduplicates by skill name (last write wins)
-
-#### Tier 2: Runtime Skill Discovery (during task execution)
-
-The worker container includes the CLIs needed for agents to discover and install skills at runtime:
-
-- **`openskills`** — `bunx openskills install <repo>`, `bunx openskills search <query>`
-- **`skills`** (Vercel) — `bunx skills add <repo>`
-- **OpenCode native skill tool** — discovers skills already in `~/.config/opencode/skills/` and `.opencode/skills/`
-- **`opencode-skillful`** plugin — lazy-load skill discovery with search across configured base paths
-- **Web fetch** — OpenCode's built-in `webfetch` tool can pull SKILL.md files directly from LobeHub, GitHub, or any URL
-
-**How it works in practice:** When an agent encounters a task that requires a capability it doesn't have (e.g., "generate a PDF report"), it can:
-1. Use OpenCode's native skill tool to check if a relevant skill is already installed
-2. If not found, use shell access to run `bunx openskills install <repo>` or `bunx skills add <repo>` to fetch it from a marketplace
-3. Load the newly installed skill and proceed with the task
-
-The container has network access (`turboclaw-net`) specifically so agents can reach out to GitHub, npm, and marketplace APIs for skill discovery.
-
-**Marketplace sources the agent can discover from:**
-1. **OpenSkills repos** — any GitHub repo with `skills/*/SKILL.md` structure
-2. **n-skills** — curated marketplace at `numman-ali/n-skills`
-3. **LobeHub Skills** — `curl https://lobehub.com/skills/<name>/skill.md`
-4. **awesome-opencode** — community index of plugins and skills
-5. **npm** — any npm package that exports OpenCode-compatible skills
-6. **Direct GitHub URLs** — any repo with SKILL.md files
-
-#### Custom Project Skills
-
-You can also add custom skills specific to your project or workflow:
-- **Project-level:** `.opencode/skills/*/SKILL.md` in the workspace
-- **Global (host-mounted):** `~/.turboclaw/skills/` mounted read-only into containers at `~/.config/opencode/skills/`
-- **Per-task:** include skill files in the task's workspace directory
+See the Iteration Plan (Phase 3) for implementation details.
 
 ### 4.6 Gateway (`src/gateway/`)
 
@@ -421,8 +333,7 @@ HTTP API for external interaction. Minimal REST surface.
 | GET | `/tasks/:id` | Get task details |
 | POST | `/tasks/:id/cancel` | Cancel a task |
 | GET | `/runs/:id/events` | Stream events (SSE) |
-| GET | `/runs/:id/artifacts` | List artifacts |
-| GET | `/artifacts/:id/download` | Download artifact |
+| GET | `/artifacts?taskId=&runId=` | List artifacts (filtered) |
 | GET | `/status` | Orchestrator status (active workers, queue depth) |
 | POST | `/pipelines` | Create pipeline |
 | GET | `/pipelines` | List pipelines |
@@ -504,7 +415,7 @@ The onboarding must be dead simple — 3 choices max to get running.
 
 | Provider | What happens |
 |----------|-------------|
-| **GitHub Copilot** | Opens browser for GitHub OAuth device flow. User enters code at github.com/login/device. No API key needed. OpenCode handles auth via `opencode auth login`. |
+| **GitHub Copilot** | Opens browser for GitHub OAuth device flow. User enters code at github.com/login/device. No API key needed. |
 | **ChatGPT Plus/Pro** | Opens browser for OpenAI OAuth (PKCE flow). No API key needed. Uses your existing subscription. |
 | **Claude Pro/Max** | Opens browser for Anthropic OAuth. No API key needed. Uses your existing subscription. |
 | **Anthropic API** | Prompts for `ANTHROPIC_API_KEY`. Validates with a test call. |
@@ -514,7 +425,7 @@ The onboarding must be dead simple — 3 choices max to get running.
 
 **Step 3: Build worker image** (automatic with progress bar)
 - Builds `turboclaw-worker:latest` Docker image
-- Shows progress: pulling base image → installing OpenCode → installing browser → fetching seed skills
+- Shows progress: pulling base image → installing Node.js → installing Claude Code CLI
 - Takes 2-5 minutes on first run
 
 **Step 4: WhatsApp (optional)**
@@ -540,47 +451,16 @@ The onboarding must be dead simple — 3 choices max to get running.
 - The entire flow should take under 2 minutes (excluding Docker image build)
 - If the user quits mid-wizard, save partial config and resume where they left off
 
-**Generated OpenCode config for workers:**
+**Worker container configuration:**
 
-For subscription-based providers, TurboClaw generates the `opencode.json` that goes into the worker image and passes auth tokens via environment variables. For Ollama, it generates the provider config pointing to the host network:
-
-```json
-// Ollama example — generated into docker/opencode.json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "provider": {
-    "ollama": {
-      "npm": "@ai-sdk/openai-compatible",
-      "name": "Ollama (local)",
-      "options": {
-        "baseURL": "http://host.docker.internal:11434/v1"
-      },
-      "models": {
-        "qwen3-coder": {
-          "name": "qwen3-coder",
-          "tools": true
-        }
-      }
-    }
-  },
-  "plugin": [
-    "@different-ai/opencode-browser",
-    "opencode-skillful"
-  ],
-  "permission": {
-    "skill": { "*": "allow" }
-  }
-}
-```
-
-For Copilot/ChatGPT/Claude subscriptions, TurboClaw runs `opencode auth login` inside the container at startup to pass through the cached credentials.
+The container manager passes provider credentials to workers via environment variables (`ANTHROPIC_API_KEY`, etc.) and mounts credential directories (`~/.claude/`) as needed. The agent command is resolved by `src/container/agent-commands.ts` based on the configured agent type.
 
 **Settings screen:**
 - Provider configuration (switch provider, re-authenticate, add additional providers)
 - Orchestrator tuning (concurrency, poll interval, retry settings)
 - Scheduling strategy (FIFO / priority / round-robin)
 - Container settings (image tag, network, workspace dir)
-- Skills manifest (edit seed skill sources)
+- Agent type selection (Claude Code / OpenCode / Codex)
 - Self-improvement toggle (mount own source into workers)
 
 ### 4.8 Memory Screen (`src/tui/screens/memory.tsx`)
@@ -607,14 +487,12 @@ When self-improvement mode is enabled, the container manager mounts the TurboCla
 ```bash
 docker run --rm \
   --name turboclaw-worker-{task_id} \
-  -e OPENCODE_PROVIDER=... \
-  -e OPENCODE_MODEL=... \
   -e ANTHROPIC_API_KEY=... \
-  -v /path/to/turboclaw:/workspace \
   -v /path/to/turboclaw:/workspace:rw \
+  -v ~/.turboclaw/memory:/memory:rw \
   --network=turboclaw-net \
   turboclaw-worker:latest \
-  opencode --yes --message "{task_prompt}"
+  claude -p "{task_prompt}" --allowedTools ... --output-format stream-json
 ```
 
 **Configuration:**
@@ -636,7 +514,7 @@ docker run --rm \
 - Changes are never committed to `main` directly
 - If `createPR` is true, the agent creates a local branch with descriptive commits; you review and merge
 - The running TurboClaw process is NOT the one being modified — the agent edits the source on disk, and you restart to pick up changes
-- Container still has network access for skill discovery and web search
+- Container has network access for web search and API calls
 - CLAUDE.md / AGENTS.md in the project root guides the agent on architecture and conventions
 
 **Use cases:**
@@ -846,7 +724,7 @@ turboclaw/
 │   │       └── use-memory.ts    # Hook for polling memory vault notes by tier
 │   │
 │   ├── tracker/
-│   │   ├── schema.sql           # SQLite DDL (embedded)
+│   │   ├── schema.ts            # SQLite DDL (string constant, applied on boot)
 │   │   ├── store.ts             # All DB operations
 │   │   └── types.ts             # TypeScript types for tracker
 │   │
@@ -963,11 +841,13 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 - [ ] Task list screen (view tasks, create inline)
 
 ### Phase 3: Containers
-- [ ] Worker Dockerfile with OpenCode + opencode-browser + skill discovery CLIs
-- [ ] Container manager: spawn, stream output, collect artifacts
-- [ ] Seed skills fetcher script (build-time manifest)
-- [ ] Verify runtime skill discovery works inside container (openskills install, skills add)
-- [ ] Build script for worker image
+- [x] Worker Dockerfile with Claude Code CLI
+- [x] Container manager: spawn, stream output, collect artifacts
+- [x] Build script for worker image
+- [ ] Add OpenCode agent support to Dockerfile
+- [ ] Add Codex agent support to Dockerfile
+- [ ] Browser automation (opencode-browser or Playwright)
+- [ ] Skills system (seed skills + runtime discovery) — requires OpenCode
 
 ### Phase 4: Orchestration
 - [ ] Orchestrator loop with FIFO scheduling
@@ -1018,14 +898,12 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 |----------|-----------|
 | Bun over Node | Native SQLite, faster startup, TypeScript-first, Bun.serve() |
 | Bun SQLite over external DB | Zero dependencies, embedded, perfect for single-user |
-| OpenCode over Claude Code | Open source, multi-provider, plugin ecosystem |
+| Claude Code as default agent | Most capable coding agent; OpenCode/Codex support planned |
 | Docker over Apple Container | Cross-platform, Hetzner-friendly, industry standard |
 | REST API over WebSocket | Simpler, SSE for streaming, easier to debug |
-| No "skills over features" contribution model | NanoClaw's PR-as-skills pattern is excluded; we accept normal code contributions and custom skills |
-| Runtime skill discovery | Agents can search and install skills from marketplaces during execution, not just at build time |
-| Two-tier skills (seed + runtime) | Seed set avoids cold-start latency; runtime discovery handles the long tail |
+| No "skills over features" contribution model | NanoClaw's PR-as-skills pattern is excluded; we accept normal code contributions |
 | Separate tracker/orchestrator/agent | nullclaw pattern — modular, replaceable components |
-| Headless browser via agent-browser | No Chrome needed in container, Playwright-based |
+| Three-tier memory (core/daily/weekly) | Core for identity, daily for task context, weekly for summaries — with auto-pruning |
 | Ink for TUI | React-based, Flexbox layout, Bun-compatible, mature ecosystem (@inkjs/ui) |
 | TUI as primary interface | Fits the AI-native philosophy — interactive, no web UI needed |
 | Self-improvement via mount | Project dir mounted as workspace; agent edits source on a branch, never main |

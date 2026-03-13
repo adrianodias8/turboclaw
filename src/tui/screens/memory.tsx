@@ -5,7 +5,7 @@ import { join } from "path";
 import type { TurboClawConfig } from "../../config";
 import { useMemoryNotes } from "../hooks/use-memory";
 import { createCoreNote, updateNoteContent } from "../../memory/writer";
-import { deleteNote, readNote } from "../../memory/vault";
+import { deleteNote } from "../../memory/vault";
 import { compileWeeklySummary } from "../../memory/librarian";
 import type { MemoryNote } from "../../memory/types";
 

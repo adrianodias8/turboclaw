@@ -113,8 +113,13 @@ export function startOrchestrator(
 
     const memoryVaultPath = join(config.home, "memory");
 
-    // Build prompt with chat history and memory context
+    // Build prompt with memory context and chat history
+    // Injection order (outermost first): core → search-based → chat history → prompt
     let prompt = task.description ?? task.title;
+
+    if (task.agent_role === "self-improve") {
+      prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
+    }
 
     // Inject recent conversation history for WhatsApp tasks
     if (task.reply_jid) {
@@ -124,22 +129,20 @@ export function startOrchestrator(
         const lines = previous.map(m =>
           m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`
         );
-        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\nNow respond to this new message:\n\n${prompt}`;
+        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\n${prompt}`;
       }
     }
 
-    // Inject core memory (always present)
-    const coreContext = buildCoreContext(memoryVaultPath);
-    if (coreContext) {
-      prompt = `${coreContext}\n\n---\n\n${prompt}`;
-    }
-
+    // Search-based memory (daily/weekly notes matched by keywords)
     const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
     if (memoryContext) {
       prompt = `${memoryContext}\n\n---\n\n${prompt}`;
     }
-    if (task.agent_role === "self-improve") {
-      prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
+
+    // Core memory (always injected, outermost layer)
+    const coreContext = buildCoreContext(memoryVaultPath);
+    if (coreContext) {
+      prompt = `${coreContext}\n\n---\n\n${prompt}`;
     }
 
     // Resolve agent CLI command based on configured agent type

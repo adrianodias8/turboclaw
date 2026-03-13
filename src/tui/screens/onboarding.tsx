@@ -307,10 +307,10 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   const vaultPath = join(config.home, "memory");
 
   const handleCoreName = (value: string) => {
+    initVault({ vaultPath });
     const trimmed = value.trim();
     if (trimmed) {
       setCoreName(trimmed);
-      initVault({ vaultPath });
       createCoreNote(vaultPath, "user-name", "User Name", trimmed, ["core", "identity"]);
     }
     setStep("core-role");

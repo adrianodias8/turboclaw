@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "fs";
-import { join, relative } from "path";
+import { join } from "path";
 import type { VaultConfig, MemoryNote, NoteFrontmatter } from "./types";
 
 const VAULT_DIRS = ["inbox", "notes", "projects", "tasks", "agents", "templates", "core", "weekly"];
