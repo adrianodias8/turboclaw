@@ -20,15 +20,19 @@ import { mkdirSync, existsSync } from "fs";
 export interface OrchestratorHandle {
   stop(): void;
   isRunning(): boolean;
+  requestRestart(callback: () => void): void;
 }
 
 export function startOrchestrator(
   store: Store,
   containerManager: ContainerManager,
-  config: TurboClawConfig
+  config: TurboClawConfig,
+  restartToken?: string
 ): OrchestratorHandle {
   let running = true;
   let activeCount = 0;
+  let restartRequested = false;
+  let restartCallback: (() => void) | null = null;
   const activeContainers = new Map<string, string>(); // runId -> containerId
 
   async function tick() {
@@ -138,7 +142,7 @@ export function startOrchestrator(
       // Mount TurboClaw source as /project AND override workspace to point there
       // so the agent's working directory is the source tree it needs to improve.
       mountProjectSource = process.cwd();
-      Object.assign(envVars, buildSelfImproveEnv(config, task.id));
+      Object.assign(envVars, buildSelfImproveEnv(config, task.id, restartToken));
       envVars.TURBOCLAW_WORK_DIR = "/project";
     }
 
@@ -397,6 +401,20 @@ export function startOrchestrator(
 
   // Start polling loop
   const interval = setInterval(() => {
+    // If restart requested, wait for active containers to drain then invoke callback
+    if (restartRequested) {
+      if (activeCount === 0 && restartCallback) {
+        logger.info("All containers drained — executing restart");
+        clearInterval(interval);
+        restartCallback();
+        return;
+      }
+      // Don't pick up new tasks while draining
+      logger.info(`Restart pending — waiting for ${activeCount} active container(s) to finish`);
+      tickExpiredLeases();
+      return;
+    }
+
     tick();
     tickCrons();
     tickExpiredLeases();
@@ -416,6 +434,17 @@ export function startOrchestrator(
     },
     isRunning() {
       return running;
+    },
+    requestRestart(callback: () => void) {
+      restartRequested = true;
+      restartCallback = callback;
+      logger.info(`Restart requested — draining ${activeCount} active container(s)`);
+      // If no active containers, fire immediately
+      if (activeCount === 0) {
+        logger.info("No active containers — executing restart immediately");
+        clearInterval(interval);
+        callback();
+      }
     },
   };
 }

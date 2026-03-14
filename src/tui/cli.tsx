@@ -14,14 +14,16 @@ import { logger, setLogFile } from "../logger";
 import { App } from "./app";
 import { Onboarding } from "./screens/onboarding";
 
+const RESTART_EXIT_CODE = 75;
+
 export function renderApp(config: TurboClawConfig) {
   // Redirect logs to file so they don't corrupt the TUI
   setLogFile(join(config.home, "turboclaw.log"));
   const db = new Database(config.dbPath);
   const store = createStore(db);
-  const server = startGateway(store, config);
   const containerManager = createContainerManager(store);
-  const orchestrator = startOrchestrator(store, containerManager, config);
+
+  const restartToken = crypto.randomUUID();
 
   const vaultPath = join(config.home, "memory");
   initVault({ vaultPath });
@@ -30,6 +32,29 @@ export function renderApp(config: TurboClawConfig) {
   const startedAt = Math.floor(Date.now() / 1000);
 
   let whatsappBridge: WhatsAppBridge | null = null;
+
+  function gracefulShutdown(exitCode: number) {
+    whatsappBridge?.stop();
+    orchestrator.stop();
+    librarian.stop();
+    server.stop();
+    db.close();
+    process.exit(exitCode);
+  }
+
+  function doRestart() {
+    logger.info("TUI mode: executing restart (exit 75)...");
+    gracefulShutdown(RESTART_EXIT_CODE);
+  }
+
+  const server = startGateway(store, config, {
+    restartToken,
+    requestRestart() {
+      orchestrator.requestRestart(doRestart);
+    },
+  });
+
+  const orchestrator = startOrchestrator(store, containerManager, config, restartToken);
 
   function renderTUI(bridge: WhatsAppBridge | null) {
     const instance = render(

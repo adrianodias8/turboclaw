@@ -1,5 +1,7 @@
 import type { Store } from "../tracker/store";
 import type { CreateTaskInput, CreatePipelineInput } from "../tracker/types";
+import type { GatewayOptions } from "./server";
+import { logger } from "../logger";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -20,7 +22,30 @@ async function parseBody<T>(req: Request): Promise<T | null> {
   }
 }
 
-export function createRoutes(store: Store) {
+function validateRestartPreconditions(): { ok: boolean; reason?: string } {
+  try {
+    const result = Bun.spawnSync(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
+    const branch = new TextDecoder().decode(result.stdout).trim();
+    if (branch === "main" || branch === "master") {
+      return { ok: false, reason: "Cannot restart on main/master branch" };
+    }
+
+    // Check for protected file changes vs main
+    const diffResult = Bun.spawnSync(["git", "diff", "--name-only", "main...HEAD"]);
+    const changedFiles = new TextDecoder().decode(diffResult.stdout).trim().split("\n").filter(Boolean);
+    const protectedFiles = new Set([".env", ".env.local", ".env.production", "config.json", "turboclaw.db", "turboclaw.db-wal", "turboclaw.db-shm"]);
+    const violations = changedFiles.filter(f => protectedFiles.has(f));
+    if (violations.length > 0) {
+      return { ok: false, reason: `Protected files modified: ${violations.join(", ")}` };
+    }
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: `Git check failed: ${err}` };
+  }
+}
+
+export function createRoutes(store: Store, opts?: GatewayOptions) {
   return async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -29,6 +54,28 @@ export function createRoutes(store: Store) {
     // Health
     if (method === "GET" && pathname === "/health") {
       return json({ ok: true });
+    }
+
+    // Restart (self-improve mode)
+    if (method === "POST" && pathname === "/restart") {
+      if (!opts?.restartToken || !opts?.requestRestart) {
+        return error("Restart not available", 404);
+      }
+
+      const token = req.headers.get("X-Restart-Token");
+      if (!token || token !== opts.restartToken) {
+        return error("Invalid restart token", 403);
+      }
+
+      const check = validateRestartPreconditions();
+      if (!check.ok) {
+        return error(check.reason!, 400);
+      }
+
+      logger.info("Restart requested via API — initiating graceful shutdown");
+      // Defer restart so we can return the response first
+      setTimeout(() => opts.requestRestart!(), 100);
+      return json({ ok: true, message: "Restarting..." });
     }
 
     // Status

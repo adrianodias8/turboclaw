@@ -24,12 +24,16 @@ export function validateSelfImproveTask(config: TurboClawConfig, task: Task): { 
   return { valid: true };
 }
 
-export function buildSelfImproveEnv(config: TurboClawConfig, taskId: string): Record<string, string> {
-  return {
+export function buildSelfImproveEnv(config: TurboClawConfig, taskId: string, restartToken?: string): Record<string, string> {
+  const env: Record<string, string> = {
     TURBOCLAW_SELF_IMPROVE: "true",
     TURBOCLAW_BRANCH: `turboclaw/improve/${taskId}`,
     TURBOCLAW_PROTECTED_FILES: [...PROTECTED_FILES].join(","),
   };
+  if (restartToken) {
+    env.TURBOCLAW_RESTART_TOKEN = restartToken;
+  }
+  return env;
 }
 
 /**
@@ -45,5 +49,12 @@ export function selfImprovePreamble(taskId: string): string {
     `# Always work on a feature branch — never commit to main.`,
     `git checkout -b ${branch}`,
     `# Protected files (do not modify): ${[...PROTECTED_FILES].join(", ")}`,
+    ``,
+    `# After making changes:`,
+    `# 1. Run tests: bun test`,
+    `# 2. Commit to your branch`,
+    `# 3. Trigger restart so the host picks up your changes:`,
+    `#    curl -X POST "\${TURBOCLAW_API}/restart" -H "X-Restart-Token: \${TURBOCLAW_RESTART_TOKEN}"`,
+    `# 4. Create a follow-up task to verify changes after restart`,
   ].join("\n");
 }

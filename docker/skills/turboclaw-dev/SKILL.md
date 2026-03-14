@@ -329,6 +329,34 @@ store.createCron({
 ### Working with self-improve mode
 When `agent_role === "self-improve"`, the container gets TurboClaw's own source at `/project`. Always create a feature branch, never touch main.
 
+### Self-Improve Restart Protocol
+
+After modifying TurboClaw's source in self-improve mode, the host process still runs old code. To apply your changes:
+
+1. **Run tests** inside the container: `bun test`
+2. **Commit** your changes to the feature branch
+3. **Trigger restart** so the host picks up new code:
+   ```bash
+   curl -X POST "${TURBOCLAW_API}/restart" \
+     -H "X-Restart-Token: ${TURBOCLAW_RESTART_TOKEN}"
+   ```
+4. **Create a follow-up task** to verify your changes after the restart
+
+**What happens:**
+- The host validates you're on a feature branch (not main/master)
+- The host checks no protected files were modified (.env, config.json, turboclaw.db)
+- Active containers drain (finish their current work)
+- TurboClaw exits with code 75
+- The wrapper script (`scripts/run.sh`) sees exit 75 and re-execs bun
+- TurboClaw restarts with your new code
+- Your follow-up task gets picked up and can verify the changes
+
+**Error cases:**
+- Wrong/missing token → 403
+- On main/master branch → 400
+- Protected files modified → 400
+- Restart not available (no token configured) → 404
+
 ## Task Self-Creation (Splitting Complex Tasks)
 
 You can create new tasks from inside a container by calling the TurboClaw API. The API URL is available in the `$TURBOCLAW_API` environment variable.
