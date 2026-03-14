@@ -23,15 +23,23 @@ export interface TurboClawConfig {
     model?: string;
   } | null;
   agent?: "opencode" | "claude-code" | "codex";
+  /** Host project directory to mount as the container workspace. Defaults to cwd. */
+  workspaceRoot?: string;
   whatsapp: {
     enabled: boolean;
     allowedNumbers: string[];
+    allowedGroups: string[];
     notifyOnComplete: boolean;
     notifyOnFail: boolean;
   };
   memory: {
     dailyRetentionDays: number;
     weeklyRetentionWeeks: number;
+  };
+  skills: {
+    autoDiscover: boolean;
+    maxPerTask: number;
+    registries: ("clawhub" | "n-skills")[];
   };
   dbPath: string;
 }
@@ -54,6 +62,7 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
   whatsapp: {
     enabled: false,
     allowedNumbers: [],
+    allowedGroups: [],
     notifyOnComplete: false,
     notifyOnFail: false,
   },
@@ -61,10 +70,15 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
     dailyRetentionDays: 7,
     weeklyRetentionWeeks: 4,
   },
+  skills: {
+    autoDiscover: true,
+    maxPerTask: 5,
+    registries: ["clawhub", "n-skills"],
+  },
 };
 
 export function loadConfig(): TurboClawConfig {
-  const home = process.env.TURBOCLAW_HOME ?? join(process.env.HOME ?? "~", ".turboclaw");
+  const home = process.env.TURBOCLAW_HOME ?? join(process.cwd(), ".turboclaw");
   const configPath = join(home, "config.json");
   const dbPath = join(home, "turboclaw.db");
 
@@ -91,7 +105,9 @@ export function loadConfig(): TurboClawConfig {
     selfImprove: { ...DEFAULT_CONFIG.selfImprove, ...(fileConfig.selfImprove as Record<string, unknown> ?? {}) },
     whatsapp: { ...DEFAULT_CONFIG.whatsapp, ...(fileConfig.whatsapp as Record<string, unknown> ?? {}) },
     memory: { ...DEFAULT_CONFIG.memory, ...(fileConfig.memory as Record<string, unknown> ?? {}) },
+    skills: { ...DEFAULT_CONFIG.skills, ...(fileConfig.skills as Record<string, unknown> ?? {}) },
     agent: (fileConfig.agent as TurboClawConfig["agent"]) ?? undefined,
+    workspaceRoot: (fileConfig.workspaceRoot as string) ?? undefined,
   } as TurboClawConfig;
 
   // Env var overrides
@@ -103,6 +119,9 @@ export function loadConfig(): TurboClawConfig {
   }
   if (process.env.TURBOCLAW_MAX_CONCURRENCY) {
     config.orchestrator.maxConcurrency = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
+  }
+  if (process.env.TURBOCLAW_WORKSPACE_ROOT) {
+    config.workspaceRoot = process.env.TURBOCLAW_WORKSPACE_ROOT;
   }
   if (process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS) {
     config.memory.dailyRetentionDays = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);

@@ -1,5 +1,10 @@
 {
   "version": 1,
   "description": "Seed skills pre-fetched into the worker image",
-  "skills": []
+  "skills": [
+    { "name": "web-research", "path": "skills/web-research/SKILL.md" },
+    { "name": "git-workflow", "path": "skills/git-workflow/SKILL.md" },
+    { "name": "task-completion", "path": "skills/task-completion/SKILL.md" },
+    { "name": "turboclaw-dev", "path": "skills/turboclaw-dev/SKILL.md" }
+  ]
 }

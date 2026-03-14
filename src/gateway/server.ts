@@ -3,8 +3,13 @@ import type { TurboClawConfig } from "../config";
 import { createRoutes } from "./routes";
 import { logger } from "../logger";
 
-export function startGateway(store: Store, config: TurboClawConfig) {
-  const handleRequest = createRoutes(store);
+export interface GatewayOptions {
+  restartToken?: string;
+  requestRestart?: () => void;
+}
+
+export function startGateway(store: Store, config: TurboClawConfig, opts?: GatewayOptions) {
+  const handleRequest = createRoutes(store, opts);
 
   const server = Bun.serve({
     port: config.gateway.port,

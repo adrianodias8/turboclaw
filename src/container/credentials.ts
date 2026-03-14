@@ -54,13 +54,27 @@ export function resolveCredentialPaths(providerType: string): string[] {
       if (existsSync(codexDir)) paths.push(codexDir);
       break;
     }
+
+    case "opencode-config": {
+      // Mount the entire opencode config — user's provider setup lives here
+      const opencodeDir = join(HOME, ".config", "opencode");
+      if (existsSync(opencodeDir)) paths.push(opencodeDir);
+      const opencodeData = join(HOME, ".local", "share", "opencode");
+      if (existsSync(opencodeData)) paths.push(opencodeData);
+      // State dir holds model.json (last-used model/provider selection)
+      const opencodeState = join(HOME, ".local", "state", "opencode");
+      if (existsSync(opencodeState)) paths.push(opencodeState);
+      break;
+    }
   }
 
   // Common: opencode general config (may contain cached tokens)
   const opencodeConfig = join(HOME, ".config", "opencode");
   if (existsSync(opencodeConfig) && !paths.includes(opencodeConfig)) {
-    // Only mount the config dir if we haven't already mounted a subdir
-    const alreadyMounted = paths.some((p) => p.startsWith(opencodeConfig));
+    // Only mount the config dir if we haven't already mounted it or a subdir of it
+    const sep = "/";
+    const prefix = opencodeConfig + sep;
+    const alreadyMounted = paths.some((p) => p === opencodeConfig || p.startsWith(prefix));
     if (!alreadyMounted) {
       paths.push(opencodeConfig);
     }
@@ -68,3 +82,4 @@ export function resolveCredentialPaths(providerType: string): string[] {
 
   return paths;
 }
+

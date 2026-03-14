@@ -2,7 +2,7 @@ import { join } from "path";
 import { newId } from "../ids";
 import { writeNote } from "./vault";
 import { readFileSync } from "fs";
-import { fleetingTemplate, permanentTemplate, taskLogTemplate, mocTemplate, coreTemplate } from "./templates";
+import { fleetingTemplate, permanentTemplate, taskLogTemplate, mocTemplate, coreTemplate, renderFrontmatter } from "./templates";
 import { parseFrontmatter } from "./vault";
 
 export function createFleetingNote(
@@ -69,15 +69,13 @@ export function updateNoteContent(filePath: string, newContent: string): void {
   const raw = readFileSync(filePath, "utf-8");
   const { frontmatter } = parseFrontmatter(raw);
 
-  // Rebuild frontmatter block
-  const fmStart = raw.indexOf("---");
-  const fmEnd = raw.indexOf("---", fmStart + 3);
-  if (fmStart === -1 || fmEnd === -1) {
+  if (Object.keys(frontmatter).length === 0) {
     writeNote(filePath, newContent);
     return;
   }
 
-  const fmBlock = raw.slice(fmStart, fmEnd + 3);
+  // Roundtrip through renderFrontmatter to avoid fragile indexOf("---") slicing
+  const fmBlock = renderFrontmatter(frontmatter);
   writeNote(filePath, `${fmBlock}\n\n${newContent}\n`);
 }
 

@@ -77,6 +77,28 @@ describe("alerts", () => {
     }
   });
 
+  it("acknowledgeAlertsByKind only acknowledges matching kind", () => {
+    store.createAlert("task_failed", "Fail 1");
+    store.createAlert("lease_expired", "Lease 1");
+    store.createAlert("task_failed", "Fail 2");
+    store.createAlert("whatsapp_disconnect", "WA disconnected");
+
+    store.acknowledgeAlertsByKind("task_failed");
+
+    const unack = store.listAlerts({ acknowledged: false });
+    expect(unack).toHaveLength(2);
+    expect(unack.map(a => a.kind).sort()).toEqual(["lease_expired", "whatsapp_disconnect"]);
+
+    // All alerts still exist, but only task_failed ones are acknowledged
+    const all = store.listAlerts();
+    expect(all).toHaveLength(4);
+    const acked = all.filter(a => a.acknowledged === 1);
+    expect(acked).toHaveLength(2);
+    for (const a of acked) {
+      expect(a.kind).toBe("task_failed");
+    }
+  });
+
   it("getUnacknowledgedAlertCount returns correct count", () => {
     expect(store.getUnacknowledgedAlertCount()).toBe(0);
 

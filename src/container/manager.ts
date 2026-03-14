@@ -1,7 +1,10 @@
 import { logger } from "../logger";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import type { Store } from "../tracker/store";
 import type { ContainerConfig, SpawnOptions, ContainerInfo } from "./types";
 import { DEFAULT_CONTAINER_CONFIG } from "./types";
+import { remapHomePath, rewriteLocalhostUrls } from "./utils";
 
 export interface ContainerManager {
   spawn(opts: SpawnOptions): Promise<ContainerInfo>;
@@ -48,15 +51,17 @@ export function createContainerManager(
         "--network", config.network,
         "--memory", config.memoryLimit,
         "--cpus", config.cpuLimit,
+        // Allow container to reach host services (Ollama, etc.)
+        "--add-host", "host.docker.internal:host-gateway",
         // Mount workspace
         "-v", `${opts.workspacePath}:/workspace`,
         // Working directory
         "-w", "/workspace",
       ];
 
-      // Mount memory vault if provided
+      // Mount memory vault co-located with workspace so agents can find it
       if (opts.memoryVaultPath) {
-        dockerArgs.push("-v", `${opts.memoryVaultPath}:/memory`);
+        dockerArgs.push("-v", `${opts.memoryVaultPath}:/workspace/.turboclaw/memory`);
       }
 
       // Mount project source for self-improve mode
@@ -64,31 +69,75 @@ export function createContainerManager(
         dockerArgs.push("-v", `${opts.mountProjectSource}:/project`);
       }
 
-      // Mount OAuth credential files for subscription-based providers
+      // Mount credential files, remapping host HOME paths to container HOME (/home/agent)
+      const hostHome = process.env.HOME ?? "/root";
       if (opts.credentialPaths) {
         for (const credPath of opts.credentialPaths) {
-          dockerArgs.push("-v", `${credPath}:${credPath}:ro`);
+          const containerPath = remapHomePath(credPath, hostHome);
+
+          // For opencode config dir: rewrite localhost URLs to host.docker.internal
+          // so the container can reach host services (Ollama, etc.)
+          if (containerPath.endsWith("/.config/opencode") && existsSync(join(credPath, "opencode.json"))) {
+            const tmpDir = join(opts.workspacePath, ".turboclaw", "opencode-config");
+            mkdirSync(tmpDir, { recursive: true });
+            const raw = readFileSync(join(credPath, "opencode.json"), "utf-8");
+            const rewritten = rewriteLocalhostUrls(raw);
+            writeFileSync(join(tmpDir, "opencode.json"), rewritten);
+            dockerArgs.push("-v", `${tmpDir}/opencode.json:${containerPath}/opencode.json:ro`);
+            // Also mount node_modules if they exist (for plugins)
+            const nodeModules = join(credPath, "node_modules");
+            if (existsSync(nodeModules)) {
+              dockerArgs.push("-v", `${nodeModules}:${containerPath}/node_modules:ro`);
+            }
+            continue;
+          }
+
+          // Data dirs (share/state) need read-write for DB and logs; config dirs are read-only
+          const isDataDir = containerPath.includes("/.local/share/") || containerPath.includes("/.local/state/");
+          dockerArgs.push("-v", `${credPath}:${containerPath}${isDataDir ? "" : ":ro"}`);
         }
       }
 
-      // Environment variables
+      // Mount discovered skills into the container
+      if (opts.skillPaths && opts.skillPaths.length > 0) {
+        if (opts.agentType === "opencode") {
+          // OpenCode reads skills from ~/.config/opencode/skills/<name>/SKILL.md
+          for (const skill of opts.skillPaths) {
+            dockerArgs.push("-v", `${skill.hostDir}:/home/agent/.config/opencode/skills/${skill.name}:ro`);
+          }
+        } else if (opts.agentType === "claude-code") {
+          // Claude Code reads skills from <project>/.claude/skills/<name>/SKILL.md
+          for (const skill of opts.skillPaths) {
+            dockerArgs.push("-v", `${skill.hostDir}:/workspace/.claude/skills/${skill.name}:ro`);
+          }
+        }
+      }
+
+      // Environment variables (agent-specific env vars like OPENCODE_BROWSER_BACKEND
+      // are set via opts.envVars by the orchestrator, not hardcoded here)
       dockerArgs.push(
         "-e", `TURBOCLAW_TASK_ID=${opts.taskId}`,
         "-e", `TURBOCLAW_RUN_ID=${opts.runId}`,
         "-e", `TURBOCLAW_AGENT_ROLE=${opts.agentRole}`,
-        "-e", `OPENCODE_BROWSER_BACKEND=agent`,
+        "-e", `TURBOCLAW_MEMORY_PATH=/workspace/.turboclaw/memory`,
+        "-e", `TURBOCLAW_API=http://host.docker.internal:${opts.gatewayPort ?? 7800}`,
       );
 
       for (const [key, value] of Object.entries(opts.envVars)) {
         dockerArgs.push("-e", `${key}=${value}`);
       }
 
-      // Image and command
-      dockerArgs.push(config.image);
+      // Select image based on agent type
+      const image = opts.agentType === "opencode"
+        ? config.openCodeImage
+        : config.image;
+      dockerArgs.push(image);
       const agentCmd = opts.agentCommand ?? config.agentCommand;
-      const cmd = agentCmd.map((arg) =>
-        arg === "{prompt}" ? opts.prompt : arg
-      );
+      const cmd = agentCmd.map((arg) => {
+        if (arg === "{prompt}") return opts.prompt;
+        if (arg === "{model}") return opts.envVars.OPENCODE_MODEL ?? "anthropic/claude-sonnet-4-20250514";
+        return arg;
+      });
       dockerArgs.push(...cmd);
 
       logger.info(`Spawning container: ${containerName}`);

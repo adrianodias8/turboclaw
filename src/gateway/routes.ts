@@ -1,5 +1,7 @@
 import type { Store } from "../tracker/store";
 import type { CreateTaskInput, CreatePipelineInput } from "../tracker/types";
+import type { GatewayOptions } from "./server";
+import { logger } from "../logger";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -20,7 +22,8 @@ async function parseBody<T>(req: Request): Promise<T | null> {
   }
 }
 
-export function createRoutes(store: Store) {
+
+export function createRoutes(store: Store, opts?: GatewayOptions) {
   return async function handleRequest(req: Request): Promise<Response> {
     const url = new URL(req.url);
     const { pathname } = url;
@@ -29,6 +32,27 @@ export function createRoutes(store: Store) {
     // Health
     if (method === "GET" && pathname === "/health") {
       return json({ ok: true });
+    }
+
+    // Restart
+    if (method === "POST" && pathname === "/restart") {
+      if (!opts?.requestRestart) {
+        return error("Restart not available", 404);
+      }
+
+      // Token auth: if a token is configured, require it. Otherwise allow
+      // unauthenticated restarts (e.g. from WhatsApp bridge or local curl).
+      if (opts.restartToken) {
+        const token = req.headers.get("X-Restart-Token");
+        if (token && token !== opts.restartToken) {
+          return error("Invalid restart token", 403);
+        }
+      }
+
+      logger.info("Restart requested via API — initiating graceful shutdown");
+      // Defer restart so we can return the response first
+      setTimeout(() => opts.requestRestart!(), 100);
+      return json({ ok: true, message: "Restarting..." });
     }
 
     // Status

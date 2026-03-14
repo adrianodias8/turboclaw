@@ -3,11 +3,12 @@ import type { Store } from "../tracker/store";
 
 export interface NotifierHandle {
   stop(): void;
+  reset(): void;
 }
 
 export function startNotifier(
   store: Store,
-  sendMessage: (text: string, jid?: string) => Promise<void>,
+  sendMessage: (text: string, jid?: string) => Promise<boolean>,
   opts: {
     notifyOnComplete: boolean;
     notifyOnFail: boolean;
@@ -27,7 +28,6 @@ export function startNotifier(
       const failed = store.getRecentlyFailedTasks(lastCheckedAt, 20);
       for (const t of failed) {
         if (notifiedTaskIds.has(`fail:${t.id}`)) continue;
-        notifiedTaskIds.add(`fail:${t.id}`);
 
         try {
           const jid = opts.getTaskJid?.(t.id) ?? t.reply_jid ?? undefined;
@@ -42,10 +42,12 @@ export function startNotifier(
           const msg = errOutput
             ? `Sorry, that failed:\n${errOutput.slice(0, 1000)}`
             : `Sorry, that failed. (${t.id.slice(0, 8)})`;
-          await sendMessage(msg, jid);
-          if (jid) {
-            store.addChatMessage(jid, "assistant", msg.slice(0, 4000), t.id);
+          const sent = await sendMessage(msg, jid);
+          if (sent) {
+            notifiedTaskIds.add(`fail:${t.id}`);
           }
+          // Don't store failure notifications as chat history — they're system
+          // messages that would pollute future agent prompts
         } catch (err) {
           logger.warn("WhatsApp notify failed:", err);
         }
@@ -56,7 +58,6 @@ export function startNotifier(
       const done = store.getRecentlyDoneTasks(lastCheckedAt, 20);
       for (const t of done) {
         if (notifiedTaskIds.has(`done:${t.id}`)) continue;
-        notifiedTaskIds.add(`done:${t.id}`);
 
         try {
           const jid = opts.getTaskJid?.(t.id) ?? t.reply_jid ?? undefined;
@@ -70,9 +71,14 @@ export function startNotifier(
           }
           // Send just the output for a natural conversational feel
           const msg = output || `Done. (${t.id.slice(0, 8)})`;
-          await sendMessage(msg.slice(0, 4000), jid);
-          if (jid) {
-            store.addChatMessage(jid, "assistant", msg.slice(0, 4000), t.id);
+          const sent = await sendMessage(msg.slice(0, 4000), jid);
+          if (sent) {
+            notifiedTaskIds.add(`done:${t.id}`);
+            // Only store real agent output as chat history — skip the "Done."
+            // fallback to avoid polluting future prompts
+            if (jid && output) {
+              store.addChatMessage(jid, "assistant", output.slice(0, 4000), t.id);
+            }
           }
         } catch (err) {
           logger.warn("WhatsApp notify failed:", err);
@@ -94,6 +100,13 @@ export function startNotifier(
     stop() {
       running = false;
       clearInterval(interval);
+    },
+    reset() {
+      // Called on reconnect — rewind lastCheckedAt so missed tasks get retried
+      // Clear notifiedTaskIds so tasks that failed to send get another chance
+      lastCheckedAt = Math.floor(Date.now() / 1000) - 300; // look back 5 minutes
+      notifiedTaskIds.clear();
+      logger.info("Notifier reset — will retry missed notifications from the last 5 minutes");
     },
   };
 }

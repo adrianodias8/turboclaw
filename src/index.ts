@@ -21,21 +21,49 @@ function getArg(flag: string): string | undefined {
   return args[idx + 1];
 }
 
+const RESTART_EXIT_CODE = 75;
+
 async function bootHeadless() {
   const db = new Database(config.dbPath);
   const store = createStore(db);
-  const server = startGateway(store, config);
   const containerManager = createContainerManager(store);
-  const orchestrator = startOrchestrator(store, containerManager, config);
+
+  const restartToken = crypto.randomUUID();
 
   const vaultPath = join(config.home, "memory");
   initVault({ vaultPath });
   const librarian = startLibrarian(vaultPath, config.memory);
 
   let whatsappBridge: WhatsAppBridge | null = null;
+
+  function gracefulShutdown(exitCode: number) {
+    whatsappBridge?.stop();
+    orchestrator.stop();
+    librarian.stop();
+    server.stop();
+    db.close();
+    process.exit(exitCode);
+  }
+
+  function doRestart() {
+    logger.info("Executing restart (exit 75)...");
+    gracefulShutdown(RESTART_EXIT_CODE);
+  }
+
+  const server = startGateway(store, config, {
+    restartToken,
+    requestRestart() {
+      orchestrator.requestRestart(doRestart);
+    },
+  });
+
+  const orchestrator = startOrchestrator(store, containerManager, config, restartToken, doRestart);
+
   if (config.whatsapp.enabled) {
     try {
-      whatsappBridge = await startWhatsAppBridge(store, config);
+      whatsappBridge = await startWhatsAppBridge(store, config, {
+        onRestart: doRestart,
+      });
       logger.info("WhatsApp bridge started (QR code printed to terminal if not yet paired)");
     } catch (err) {
       logger.warn("WhatsApp bridge failed to start:", err);
@@ -44,14 +72,7 @@ async function bootHeadless() {
 
   logger.info("TurboClaw running in headless mode");
 
-  process.on("SIGINT", () => {
-    whatsappBridge?.stop();
-    orchestrator.stop();
-    librarian.stop();
-    server.stop();
-    db.close();
-    process.exit(0);
-  });
+  process.on("SIGINT", () => gracefulShutdown(0));
 
   return { db, store, server, orchestrator, librarian, whatsappBridge };
 }

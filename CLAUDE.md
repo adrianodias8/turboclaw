@@ -80,7 +80,7 @@ src/
   index.ts          — entry point, routes to TUI or headless
   config.ts         — config loader (JSON file + env vars)
   ids.ts            — crypto.randomUUID() wrappers, token generation
-  logger.ts         — leveled logger (info, warn, error)
+  logger.ts         — leveled logger (info, warn, error), file redirect via setLogFile() for TUI mode
 
   tui/
     app.tsx         — root Ink component, screen router, navigation state
@@ -146,10 +146,10 @@ src/
     types.ts        — MemoryNote, VaultConfig, SearchResult; NoteType includes "core" | "weekly-summary"
 
   whatsapp/
-    bridge.ts       — main WhatsApp bridge (Baileys + reconnect + QR callback)
+    bridge.ts       — main WhatsApp bridge (Baileys + reconnect + QR callback + group support)
     parser.ts       — message → command parser (/task, /status, /list, /cancel, /help)
     notifier.ts     — polls for completed/failed tasks, sends WhatsApp messages
-    types.ts        — WhatsAppConfig, ParsedCommand
+    types.ts        — WhatsAppConfig (includes allowedGroups), ParsedCommand
 ```
 
 ### Style Rules
@@ -186,21 +186,30 @@ TurboClaw supports three agent backends, configured via `config.agent`:
 
 | Agent | Command | Auth | Credential Path |
 |-------|---------|------|-----------------|
-| `opencode` (default) | `opencode run --prompt "{prompt}"` | API key or OAuth | `~/.config/opencode/` |
-| `claude-code` | `claude -p "{prompt}" --allowedTools ... --output-format stream-json` | Subscription | `~/.claude/` |
+| `opencode` (default) | `opencode run --model {model} "{prompt}"` | Mounts host config | `~/.config/opencode/`, `~/.local/share/opencode/` |
+| `claude-code` | `claude -p "{prompt}" --dangerously-skip-permissions` | API key or OAuth token | `~/.claude/` |
 | `codex` | `codex exec --full-auto "{prompt}"` | Subscription | `~/.codex/` |
 
 Agent resolution happens in `src/container/agent-commands.ts`. The orchestrator calls `buildAgentCommand()` to get the CLI args, then passes them as `agentCommand` in spawn options. The container manager uses `opts.agentCommand` if present, falling back to the default.
 
+For `opencode-config` provider, the `--model` flag is stripped — opencode uses its own config entirely.
+
+### Container Network & Credential Handling
+
+- Host `$HOME` paths are remapped to `/home/agent` inside the container
+- `--add-host host.docker.internal:host-gateway` enables containers to reach host services (Ollama, etc.)
+- `localhost`/`127.0.0.1` URLs in opencode's config are rewritten to `host.docker.internal` at spawn time
+- Data dirs (`~/.local/share/`) are mounted read-write; config dirs (`~/.config/`) are mounted read-only
+- `OLLAMA_HOST` env var is set to `http://host.docker.internal:11434` for OpenCode containers
+
 ## Docker Worker Image
 
-The worker image (`docker/Dockerfile.worker`) contains:
+The OpenCode worker image (`docker/Dockerfile.opencode`) contains:
 - Bun runtime
-- OpenCode CLI, Claude Code CLI, Codex CLI
+- OpenCode CLI
 - opencode-browser (with agent-browser backend for headless Chrome)
-- Skill discovery CLIs: `openskills`, `opencode-skillful`
-- Seed skills pre-fetched from marketplaces (base set from manifest)
 - Chromium (for agent-browser)
+- Pre-created `/home/agent/.local/state` and `.local/share` directories
 
 Workers are ephemeral — one container per task run, destroyed after completion. No fixed entrypoint; the container manager passes the full command.
 
@@ -221,7 +230,7 @@ Alerts are emitted automatically by the orchestrator:
 - `lease_expired` — when a lease expires without being released
 - `whatsapp_disconnect` — when the WhatsApp bridge disconnects
 
-Alerts surface in the TUI Alerts screen (color-coded by kind) and can be acknowledged individually or in bulk.
+Alerts surface in the TUI Alerts screen (color-coded by kind) and can be acknowledged individually or in bulk. On WhatsApp reconnection, previous `whatsapp_disconnect` alerts are automatically acknowledged.
 
 ## Skills System
 
@@ -265,8 +274,8 @@ TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/me
 ```
 
 ### Memory Lifecycle
-- **Core notes** are created during onboarding (name, role, context, preferences) or via TUI Memory screen `[7]`
-- **Daily notes** are auto-generated when tasks complete, tagged with `daily-YYYY-MM-DD`
+- **Core notes** are created during onboarding (name, role, context, preferences + 4 base agent behavior notes) or via TUI Memory screen `[7]`. Core notes are always injected and excluded from search-based context to prevent duplication.
+- **Daily notes** are auto-generated when tasks complete, tagged with `daily-YYYY-MM-DD`. Unhelpful responses (refusals, "done", "I don't know") are filtered out and not saved.
 - **Weekly summaries** are compiled by the librarian from the previous week's daily notes
 - **Pruning** runs on the librarian interval: daily notes older than `dailyRetentionDays`, weekly notes older than `weeklyRetentionWeeks * 7` days
 
@@ -285,7 +294,7 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   selfImprove: { enabled: false },
   provider: { type: "anthropic", apiKey?: "...", baseUrl?: "...", model?: "..." } | null,
   agent: "opencode" | "claude-code" | "codex",  // optional, defaults to "opencode"
-  whatsapp: { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false },
+  whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
 }
 ```
@@ -294,17 +303,14 @@ Env var overrides for memory: `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS`, `TURBOCLA
 
 ### Provider Types
 
+**Onboarding offers two options:**
+
 | Type | Auth method | What TurboClaw does |
 |------|------------|-------------------|
-| `copilot` | GitHub OAuth device flow | Runs `opencode auth login`, caches token |
-| `chatgpt` | OpenAI OAuth (PKCE) | Browser-based login |
-| `claude-sub` | Anthropic OAuth | Browser-based login |
-| `claude-code` | Claude subscription | Checks `~/.claude/` for cached auth |
-| `codex` | OpenAI subscription | Checks `~/.codex/` for cached auth |
-| `anthropic` | API key (`ANTHROPIC_API_KEY`) | Stores in config |
-| `openai` | API key (`OPENAI_API_KEY`) | Stores in config |
-| `ollama` | None (local) | Auto-detects at `localhost:11434` |
-| `custom` | Optional API key | User provides base URL |
+| `claude-code` | API key or OAuth token | Stores in config, sets agent to `claude-code` |
+| `opencode-config` | None (mounts host config) | Mounts `~/.config/opencode/` and `~/.local/share/opencode/`, sets agent to `opencode` |
+
+The `opencode-config` option supports any provider the user has configured in their host OpenCode installation (Copilot, ChatGPT, Ollama, Codex, etc.) — no additional auth needed in TurboClaw.
 
 ## Build & Run Commands
 

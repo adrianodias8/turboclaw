@@ -9,6 +9,9 @@ export function searchByFullText(vaultPath: string, query: string): SearchResult
   const results: SearchResult[] = [];
 
   for (const note of notes) {
+    // Skip core notes — they're injected separately via buildCoreContext
+    if (note.frontmatter.type === "core") continue;
+
     const text = `${note.frontmatter.title ?? ""} ${note.content}`.toLowerCase();
     let matchCount = 0;
     for (const term of terms) {
@@ -75,17 +78,3 @@ export function findOrphans(vaultPath: string): MemoryNote[] {
   });
 }
 
-export function buildLinkGraph(vaultPath: string): Map<string, Set<string>> {
-  const notes = listNotes(vaultPath);
-  const graph = new Map<string, Set<string>>();
-
-  for (const note of notes) {
-    const title = note.frontmatter.title ?? note.path;
-    if (!graph.has(title)) graph.set(title, new Set());
-    for (const link of note.links) {
-      graph.get(title)!.add(link);
-    }
-  }
-
-  return graph;
-}

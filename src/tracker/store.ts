@@ -103,6 +103,7 @@ export interface Store {
   listAlerts(opts?: { acknowledged?: boolean; limit?: number }): Alert[];
   acknowledgeAlert(id: number): void;
   acknowledgeAllAlerts(): void;
+  acknowledgeAlertsByKind(kind: AlertKind): void;
   getUnacknowledgedAlertCount(): number;
 
   // Chat messages
@@ -284,6 +285,9 @@ export function createStore(db: Database): Store {
     ),
     acknowledgeAllAlerts: db.prepare<unknown, []>(
       "UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0"
+    ),
+    acknowledgeAlertsByKind: db.prepare<unknown, [string]>(
+      "UPDATE alerts SET acknowledged = 1 WHERE acknowledged = 0 AND kind = ?"
     ),
     unackAlertCount: db.prepare<{ count: number }, []>(
       "SELECT COUNT(*) as count FROM alerts WHERE acknowledged = 0"
@@ -587,6 +591,10 @@ export function createStore(db: Database): Store {
 
     acknowledgeAllAlerts() {
       stmts.acknowledgeAllAlerts.run();
+    },
+
+    acknowledgeAlertsByKind(kind) {
+      stmts.acknowledgeAlertsByKind.run(kind);
     },
 
     getUnacknowledgedAlertCount() {

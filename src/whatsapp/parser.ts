@@ -13,6 +13,9 @@ export function parseMessage(text: string): ParsedCommand {
   if (trimmed.startsWith("/cancel ")) {
     return { type: "cancel", args: trimmed.slice(8).trim() };
   }
+  if (trimmed === "/restart") {
+    return { type: "restart", args: "" };
+  }
   if (trimmed === "/help") {
     return { type: "help", args: "" };
   }
@@ -41,6 +44,7 @@ export function formatHelp(): string {
     "/status - System status",
     "/list - Recent tasks",
     "/cancel <id> - Cancel a task",
+    "/restart - Restart TurboClaw",
     "/help - This help",
   ].join("\n");
 }

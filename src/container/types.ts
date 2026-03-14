@@ -1,5 +1,7 @@
 export interface ContainerConfig {
   image: string;
+  /** Docker image for OpenCode workers. */
+  openCodeImage: string;
   network: string;
   memoryLimit: string;
   cpuLimit: string;
@@ -19,6 +21,11 @@ export interface SpawnOptions {
   providerType?: string; // for credential mounting
   credentialPaths?: string[]; // host paths to mount into container
   agentCommand?: string[]; // per-spawn override for agent CLI command
+  agentType?: "opencode" | "claude-code" | "codex";
+  /** Discovered skill directory paths to mount into the container */
+  skillPaths?: Array<{ name: string; hostDir: string }>;
+  /** Gateway port for TURBOCLAW_API env var */
+  gatewayPort?: number;
 }
 
 export interface ContainerInfo {
@@ -31,8 +38,9 @@ export interface ContainerInfo {
 
 export const DEFAULT_CONTAINER_CONFIG: ContainerConfig = {
   image: "turboclaw-worker:latest",
+  openCodeImage: "turboclaw-opencode:latest",
   network: "turboclaw-net",
   memoryLimit: "2g",
   cpuLimit: "2",
-  agentCommand: ["opencode", "run", "--prompt", "{prompt}"],
+  agentCommand: ["opencode", "run", "--model", "{model}", "{prompt}"],
 };

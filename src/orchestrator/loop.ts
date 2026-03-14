@@ -3,30 +3,48 @@ import type { Store } from "../tracker/store";
 import type { ContainerManager } from "../container/manager";
 import type { TurboClawConfig } from "../config";
 import { validateSelfImproveTask, buildSelfImproveEnv, selfImprovePreamble } from "../container/self-improve";
+import { completionProtocol } from "../container/completion";
 import { resolveCredentialPaths } from "../container/credentials";
-import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths } from "../container/agent-commands";
+import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths, resolveOpenCodeModel } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
 import { buildContext, buildCoreContext } from "../memory/context";
 import { maybeCreateTaskMemory } from "../memory/auto-memory";
 import { advanceTask } from "../tracker/pipelines";
 import { sortTasks } from "./strategies";
 import { nextRunAt } from "./cron-parser";
+import { discoverSkills } from "../skills/discovery";
+import { createSkillCache } from "../skills/cache";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 
 export interface OrchestratorHandle {
   stop(): void;
   isRunning(): boolean;
+  requestRestart(callback: () => void): void;
 }
 
 export function startOrchestrator(
   store: Store,
   containerManager: ContainerManager,
-  config: TurboClawConfig
+  config: TurboClawConfig,
+  restartToken?: string,
+  onRestart?: () => void
 ): OrchestratorHandle {
   let running = true;
   let activeCount = 0;
+  let restartRequested = false;
+  let restartCallback: (() => void) | null = null;
   const activeContainers = new Map<string, string>(); // runId -> containerId
+
+  // Record git HEAD at boot for auto-restart detection
+  const bootHead = (() => {
+    try {
+      const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+      return new TextDecoder().decode(result.stdout).trim();
+    } catch {
+      return "";
+    }
+  })();
 
   async function tick() {
     if (!running) return;
@@ -55,46 +73,71 @@ export function startOrchestrator(
 
     logger.info(`Claimed task: ${task.title} (${task.id}) → run ${run.id} [strategy=${config.orchestrator.schedulingStrategy}]`);
 
-    // Prepare workspace
-    const workspacePath = join(config.home, "workspaces", task.id);
+    // Workspace: mount the host project root so the agent can work on real files.
+    // Falls back to a per-task directory if no workspaceRoot is configured.
+    const workspacePath = config.workspaceRoot ?? process.cwd();
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }
 
+    // Per-task artifact directory for logs/outputs (not the container workspace)
+    const artifactDir = join(config.home, "tasks", task.id);
+    if (!existsSync(artifactDir)) {
+      mkdirSync(artifactDir, { recursive: true });
+    }
+
     // Build environment variables from provider config
     const envVars: Record<string, string> = {};
-    if (config.provider) {
+    const agentType: AgentType = config.agent ?? "opencode";
+
+    // For opencode-config, skip all env var injection — opencode uses its own mounted config
+    if (config.provider && config.provider.type !== "opencode-config") {
       envVars.TURBOCLAW_PROVIDER_TYPE = config.provider.type;
 
       if (config.provider.apiKey) {
-        if (config.provider.type === "anthropic" || config.provider.type === "claude-code") {
-          // Claude Code CLI respects ANTHROPIC_API_KEY for regular API keys
-          // and CLAUDE_CODE_OAUTH_TOKEN for OAuth tokens (sk-ant-oat* prefix)
-          const key = config.provider.apiKey;
+        const key = config.provider.apiKey;
+        const provType = config.provider.type;
+
+        // Set the canonical env var based on provider type
+        if (provType === "anthropic" || provType === "claude-code" || provType === "claude-sub") {
           if (key.startsWith("sk-ant-oat")) {
-            // OAuth-derived token from `claude setup-token`
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           } else if (key.startsWith("sk-ant-")) {
             envVars.ANTHROPIC_API_KEY = key;
           } else {
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           }
-        } else if (config.provider.type === "openai") {
-          envVars.OPENAI_API_KEY = config.provider.apiKey;
-        } else if (config.provider.type === "custom") {
-          envVars.OPENAI_API_KEY = config.provider.apiKey;
+          // OpenCode and Codex also need ANTHROPIC_API_KEY if using Anthropic provider
+          if (agentType !== "claude-code" && key.startsWith("sk-ant-") && !key.startsWith("sk-ant-oat")) {
+            envVars.ANTHROPIC_API_KEY = key;
+          }
+        } else if (provType === "openai" || provType === "chatgpt" || provType === "copilot") {
+          envVars.OPENAI_API_KEY = key;
+        } else if (provType === "codex") {
+          envVars.OPENAI_API_KEY = key;
+        } else if (provType === "custom") {
+          envVars.OPENAI_API_KEY = key;
+        }
+
+        // Cross-agent compatibility: ensure the agent's expected env var is set
+        if (agentType === "claude-code" && !envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
+          // Claude Code needs ANTHROPIC_API_KEY — set it from whatever key we have
+          envVars.ANTHROPIC_API_KEY = key;
+        } else if (agentType === "codex" && !envVars.OPENAI_API_KEY) {
+          // Codex needs OPENAI_API_KEY
+          envVars.OPENAI_API_KEY = key;
         }
       }
 
       if (config.provider.baseUrl) {
-        envVars.OPENAI_BASE_URL = config.provider.baseUrl; // OpenCode uses OpenAI-compatible env vars
+        envVars.OPENAI_BASE_URL = config.provider.baseUrl;
       }
       if (config.provider.model) {
         envVars.OPENCODE_MODEL = config.provider.model;
       }
     }
 
-    // Self-improve mode
+    // Self-improve mode: override workspace to TurboClaw's own source tree
     let mountProjectSource: string | undefined;
     if (task.agent_role === "self-improve") {
       const validation = validateSelfImproveTask(config, task);
@@ -107,57 +150,122 @@ export function startOrchestrator(
         activeCount--;
         return;
       }
+      // Mount TurboClaw source as /project AND override workspace to point there
+      // so the agent's working directory is the source tree it needs to improve.
       mountProjectSource = process.cwd();
-      Object.assign(envVars, buildSelfImproveEnv(config, task.id));
+      Object.assign(envVars, buildSelfImproveEnv(config, task.id, restartToken));
+      envVars.TURBOCLAW_WORK_DIR = "/project";
     }
 
     const memoryVaultPath = join(config.home, "memory");
 
-    // Build prompt with chat history and memory context
+    // Build prompt with memory context and chat history
+    // Injection order (outermost first): core → search-based → chat history → prompt
     let prompt = task.description ?? task.title;
+
+    if (task.agent_role === "self-improve") {
+      prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
+    }
 
     // Inject recent conversation history for WhatsApp tasks
     if (task.reply_jid) {
       const history = store.getRecentChatMessages(task.reply_jid, 20);
-      const previous = history.filter(m => m.task_id !== task.id);
+      const previous = history
+        .filter(m => m.task_id !== task.id)
+        .filter(m => {
+          // Defense-in-depth: drop noisy assistant messages that shouldn't
+          // have been stored (e.g. "Done. (TASKID)", failure notifications,
+          // raw JSON error payloads)
+          if (m.role !== "assistant") return true;
+          const c = m.content.trim();
+          if (/^Done\.\s*\(/.test(c)) return false;
+          if (/^Sorry, that failed/.test(c)) return false;
+          if (/^\{/.test(c)) return false;
+          return true;
+        });
       if (previous.length > 0) {
         const lines = previous.map(m =>
           m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`
         );
-        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\nNow respond to this new message:\n\n${prompt}`;
+        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\n${prompt}`;
       }
     }
 
-    // Inject core memory (always present)
+    // Search-based memory (daily/weekly notes matched by keywords)
+    const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
+    if (memoryContext) {
+      prompt = `${memoryContext}\n\n---\n\n${prompt}`;
+    }
+
+    // Core memory (always injected, outermost layer)
     const coreContext = buildCoreContext(memoryVaultPath);
     if (coreContext) {
       prompt = `${coreContext}\n\n---\n\n${prompt}`;
     }
 
-    const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
-    if (memoryContext) {
-      prompt = `${memoryContext}\n\n---\n\n${prompt}`;
-    }
-    if (task.agent_role === "self-improve") {
-      prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
-    }
+    // Completion protocol (outermost — agent sees this first)
+    const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
+    prompt = `${completionProtocol(task.id, apiUrl)}${prompt}`;
 
     // Resolve agent CLI command based on configured agent type
-    const agentType: AgentType = config.agent ?? "opencode";
-    const agentCommand = buildAgentCommand(agentType);
+    let agentCommand = buildAgentCommand(agentType);
+
+    // For OpenCode, resolve the model string from provider config
+    // For opencode-config, strip --model entirely — let opencode use its own config
+    if (agentType === "opencode" && config.provider?.type === "opencode-config") {
+      const filtered: string[] = [];
+      for (let i = 0; i < agentCommand.length; i++) {
+        if (agentCommand[i] === "--model") {
+          i++; // skip the model value placeholder
+        } else {
+          filtered.push(agentCommand[i]!);
+        }
+      }
+      agentCommand = filtered;
+    } else if (agentType === "opencode" && config.provider) {
+      const model = resolveOpenCodeModel(config.provider);
+      agentCommand = agentCommand.map(arg => arg === "{model}" ? model : arg);
+    } else if (agentType === "opencode") {
+      // No provider configured, use default model
+      agentCommand = agentCommand.map(arg => arg === "{model}" ? "anthropic/claude-sonnet-4-20250514" : arg);
+    }
 
     // Merge agent-specific env vars
     const agentEnv = getAgentEnvVars(agentType);
     Object.assign(envVars, agentEnv);
 
-    // Resolve credential paths for OAuth providers
+    // Resolve credential paths for OAuth providers, deduplicated
     const credentialPaths = config.provider?.type
       ? resolveCredentialPaths(config.provider.type)
       : [];
 
-    // Also include agent-specific credential paths
+    // Also include agent-specific credential paths (dedup to avoid duplicate Docker mounts)
     const agentCredPaths = getAgentCredentialPaths(agentType);
-    credentialPaths.push(...agentCredPaths);
+    for (const p of agentCredPaths) {
+      if (!credentialPaths.includes(p)) {
+        credentialPaths.push(p);
+      }
+    }
+
+    // Auto-discover skills from registries based on task prompt
+    let skillPaths: Array<{ name: string; hostDir: string }> = [];
+    if (config.skills.autoDiscover && agentType !== "codex") {
+      try {
+        const projectRoot = process.cwd();
+        const taskPrompt = task.description ?? task.title;
+        const skillNames = await discoverSkills(taskPrompt, projectRoot, config.skills);
+        if (skillNames.length > 0) {
+          const cache = createSkillCache(projectRoot);
+          skillPaths = skillNames.map((name) => ({
+            name,
+            hostDir: cache.skillDir(name),
+          }));
+          store.addEvent(run.id, "info", `Discovered ${skillNames.length} skills: ${skillNames.join(", ")}`);
+        }
+      } catch (err) {
+        logger.warn(`Skill discovery failed for task ${task.id}:`, err);
+      }
+    }
 
     try {
       const container = await containerManager.spawn({
@@ -172,6 +280,9 @@ export function startOrchestrator(
         providerType: config.provider?.type,
         credentialPaths,
         agentCommand,
+        agentType,
+        skillPaths,
+        gatewayPort: config.gateway.port,
       });
 
       activeContainers.set(run.id, container.containerId);
@@ -205,6 +316,23 @@ export function startOrchestrator(
               }
             } catch (err) {
               logger.warn(`Auto-memory failed for task ${task.id}:`, err);
+            }
+
+            // Auto-restart: if a self-improve task completed, check if git HEAD
+            // changed from boot time (any new commits on any branch = restart)
+            if (task.agent_role === "self-improve" && !restartRequested && onRestart && bootHead) {
+              try {
+                const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+                const currentHead = new TextDecoder().decode(result.stdout).trim();
+                if (currentHead !== bootHead) {
+                  logger.info(`Self-improve task ${task.id}: HEAD changed (${bootHead.slice(0, 8)} → ${currentHead.slice(0, 8)}) — triggering auto-restart`);
+                  store.addEvent(run.id, "info", `Auto-restart triggered: HEAD changed from ${bootHead.slice(0, 8)} to ${currentHead.slice(0, 8)}`);
+                  restartRequested = true;
+                  restartCallback = onRestart;
+                }
+              } catch (err) {
+                logger.warn(`Failed to check git HEAD for task ${task.id}:`, err);
+              }
             }
           } else {
             // On failure: retry if allowed, otherwise mark failed
@@ -301,6 +429,20 @@ export function startOrchestrator(
 
   // Start polling loop
   const interval = setInterval(() => {
+    // If restart requested, wait for active containers to drain then invoke callback
+    if (restartRequested) {
+      if (activeCount === 0 && restartCallback) {
+        logger.info("All containers drained — executing restart");
+        clearInterval(interval);
+        restartCallback();
+        return;
+      }
+      // Don't pick up new tasks while draining
+      logger.info(`Restart pending — waiting for ${activeCount} active container(s) to finish`);
+      tickExpiredLeases();
+      return;
+    }
+
     tick();
     tickCrons();
     tickExpiredLeases();
@@ -320,6 +462,17 @@ export function startOrchestrator(
     },
     isRunning() {
       return running;
+    },
+    requestRestart(callback: () => void) {
+      restartRequested = true;
+      restartCallback = callback;
+      logger.info(`Restart requested — draining ${activeCount} active container(s)`);
+      // If no active containers, fire immediately
+      if (activeCount === 0) {
+        logger.info("No active containers — executing restart immediately");
+        clearInterval(interval);
+        callback();
+      }
     },
   };
 }
