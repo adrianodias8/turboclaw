@@ -195,8 +195,19 @@ export async function startWhatsAppBridge(
           // Only accept messages from explicitly allowed groups
           if (!getWaConfig().allowedGroups.includes(groupId)) continue;
         } else {
-          // Individual chat: check allowedNumbers
-          if (getWaConfig().allowedNumbers.length > 0 && !getWaConfig().allowedNumbers.includes(number)) continue;
+          // Individual chat: only accept from explicitly allowed numbers,
+          // or self-chat (message sent by the account owner to themselves).
+          // If allowedNumbers is empty (QR pairing), only self-chat is accepted
+          // to prevent rogue processing of messages from random contacts.
+          const isSelfChat = msg.key.fromMe === true;
+          if (isSelfChat) {
+            // Self-chat is always allowed — it's the account owner
+          } else if (getWaConfig().allowedNumbers.length === 0) {
+            // No allowed numbers configured — reject all non-self individual chats
+            continue;
+          } else if (!getWaConfig().allowedNumbers.includes(number)) {
+            continue;
+          }
         }
 
         const text = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
@@ -327,24 +338,30 @@ export async function startWhatsAppBridge(
   async function sendMessage(text: string, targetJid?: string): Promise<void> {
     if (!sock || !connected) return;
 
-    if (targetJid) {
+    if (!targetJid) {
+      // No target JID — this is a notification for a non-WhatsApp task.
+      // Only send if there are explicitly configured allowed numbers.
+      // Never broadcast blindly — that's how messages leak to random contacts.
+      if (getWaConfig().allowedNumbers.length === 0) {
+        logger.info("Skipping notification — no targetJid and no allowedNumbers configured");
+        return;
+      }
+      for (const num of getWaConfig().allowedNumbers) {
+        const numJid = `${num}@s.whatsapp.net`;
+        try {
+          const sent = await sock.sendMessage(numJid, { text });
+          if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+        } catch (err) {
+          logger.warn(`Failed to send to ${num}:`, err);
+        }
+      }
+    } else {
       // Send to specific chat (reply to the conversation that triggered the task)
       try {
         const sent = await sock.sendMessage(targetJid, { text });
         if (sent?.key?.id) sentMessageIds.add(sent.key.id);
       } catch (err) {
         logger.warn(`Failed to send to ${targetJid}:`, err);
-      }
-    } else {
-      // Broadcast to all allowed numbers
-      for (const num of getWaConfig().allowedNumbers) {
-        const jid = `${num}@s.whatsapp.net`;
-        try {
-          const sent = await sock.sendMessage(jid, { text });
-          if (sent?.key?.id) sentMessageIds.add(sent.key.id);
-        } catch (err) {
-          logger.warn(`Failed to send to ${num}:`, err);
-        }
       }
     }
   }
