@@ -117,7 +117,7 @@ export function Dashboard({ store }: DashboardProps) {
           <Box marginTop={1}>
             {alertCount > 0 ? (
               <Text color="red" bold>
-                {alertCount} unacknowledged alert{alertCount !== 1 ? "s" : ""} — press [4]
+                {alertCount} unacknowledged alert{alertCount !== 1 ? "s" : ""} — press [5]
               </Text>
             ) : (
               <Text dimColor>No alerts</Text>
