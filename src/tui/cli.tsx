@@ -65,6 +65,8 @@ export function renderOnboarding(config: TurboClawConfig) {
       config={config}
       onComplete={() => {
         instance.unmount();
+        // Ensure process exits even if background timers/sockets are alive
+        setTimeout(() => process.exit(0), 200);
       }}
     />
   );

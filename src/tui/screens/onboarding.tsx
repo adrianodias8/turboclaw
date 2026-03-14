@@ -54,6 +54,7 @@ const OAUTH_PROVIDERS = new Set(["copilot", "chatgpt", "claude-sub"]);
 const API_KEY_PROVIDERS = new Set(["anthropic", "openai"]);
 
 export function Onboarding({ config, onComplete }: OnboardingProps) {
+  const { exit } = useApp();
   const [step, setStep] = useState<Step>("docker-check");
   const [dockerOk, setDockerOk] = useState<boolean | null>(null);
   const [provider, setProvider] = useState<string>("");
@@ -518,7 +519,10 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   // Handle key presses for error recovery and ready step
   useInput((input, key) => {
     if (step === "ready" && key.return) {
+      exit();
       onComplete();
+      // Force exit — background sockets/timers from WhatsApp pairing may keep process alive
+      setTimeout(() => process.exit(0), 100);
     }
     // WhatsApp pairing: press 's' to skip
     if (step === "whatsapp-pair" && (input === "s" || input === "r")) {
