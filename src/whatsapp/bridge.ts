@@ -124,6 +124,11 @@ export async function startWhatsAppBridge(
       }
 
       if (connection === "close") {
+        // Stop all typing indicators before marking as disconnected
+        // so we send "paused" while the socket is still alive
+        for (const jid of activeTypingByJid.keys()) {
+          stopTypingPresence(jid).catch(() => {});
+        }
         connected = false;
         const err = lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
         const statusCode = err?.output?.statusCode;
@@ -180,6 +185,9 @@ export async function startWhatsAppBridge(
             notifyOnFail: getWaConfig().notifyOnFail,
             getTaskJid: (taskId) => whatsappTaskJids.get(taskId),
           });
+        } else if (isReconnect) {
+          // Reset notifier so missed notifications get retried
+          notifier.reset();
         }
       }
     });
@@ -360,8 +368,8 @@ export async function startWhatsAppBridge(
     });
   }
 
-  async function sendMessage(text: string, targetJid?: string): Promise<void> {
-    if (!sock || !connected) return;
+  async function sendMessage(text: string, targetJid?: string): Promise<boolean> {
+    if (!sock || !connected) return false;
 
     if (!targetJid) {
       // No target JID — this is a notification for a non-WhatsApp task.
@@ -369,7 +377,7 @@ export async function startWhatsAppBridge(
       // Never broadcast blindly — that's how messages leak to random contacts.
       if (getWaConfig().allowedNumbers.length === 0) {
         logger.info("Skipping notification — no targetJid and no allowedNumbers configured");
-        return;
+        return true; // intentionally skipped, not a failure
       }
       for (const num of getWaConfig().allowedNumbers) {
         const numJid = `${num}@s.whatsapp.net`;
@@ -378,16 +386,20 @@ export async function startWhatsAppBridge(
           if (sent?.key?.id) sentMessageIds.add(sent.key.id);
         } catch (err) {
           logger.warn(`Failed to send to ${num}:`, err);
+          return false;
         }
       }
+      return true;
     } else {
       // Send to specific chat (reply to the conversation that triggered the task)
       try {
         await stopTypingPresence(targetJid);
         const sent = await sock.sendMessage(targetJid, { text });
         if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+        return true;
       } catch (err) {
         logger.warn(`Failed to send to ${targetJid}:`, err);
+        return false;
       }
     }
   }
@@ -433,10 +445,10 @@ export async function startWhatsAppBridge(
   return {
     stop() {
       shouldReconnect = false;
-      for (const timer of activeTypingByJid.values()) {
-        clearInterval(timer);
+      // Send "paused" for all active typing JIDs before disconnecting
+      for (const jid of activeTypingByJid.keys()) {
+        stopTypingPresence(jid).catch(() => {});
       }
-      activeTypingByJid.clear();
       notifier?.stop();
       sock?.end(undefined);
       connected = false;

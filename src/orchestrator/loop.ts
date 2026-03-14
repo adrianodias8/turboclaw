@@ -27,7 +27,8 @@ export function startOrchestrator(
   store: Store,
   containerManager: ContainerManager,
   config: TurboClawConfig,
-  restartToken?: string
+  restartToken?: string,
+  onRestart?: () => void
 ): OrchestratorHandle {
   let running = true;
   let activeCount = 0;
@@ -305,6 +306,25 @@ export function startOrchestrator(
               }
             } catch (err) {
               logger.warn(`Auto-memory failed for task ${task.id}:`, err);
+            }
+
+            // Auto-restart fallback: if a self-improve task completed but didn't
+            // trigger /restart, check if there are new commits on the expected branch
+            if (task.agent_role === "self-improve" && !restartRequested && onRestart) {
+              try {
+                const branch = `turboclaw/improve/${task.id}`;
+                const result = Bun.spawnSync(["git", "log", `main..${branch}`, "--oneline", "--max-count=1"]);
+                const hasCommits = new TextDecoder().decode(result.stdout).trim().length > 0;
+                if (hasCommits) {
+                  logger.info(`Self-improve task ${task.id} has commits on ${branch} but didn't call /restart — triggering auto-restart`);
+                  store.addEvent(run.id, "info", `Auto-restart triggered: new commits detected on ${branch}`);
+                  restartRequested = true;
+                  restartCallback = onRestart;
+                  // Will drain remaining containers in the next tick, then call onRestart
+                }
+              } catch (err) {
+                logger.warn(`Failed to check self-improve branch for task ${task.id}:`, err);
+              }
             }
           } else {
             // On failure: retry if allowed, otherwise mark failed

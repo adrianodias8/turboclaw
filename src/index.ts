@@ -57,7 +57,7 @@ async function bootHeadless() {
     },
   });
 
-  const orchestrator = startOrchestrator(store, containerManager, config, restartToken);
+  const orchestrator = startOrchestrator(store, containerManager, config, restartToken, doRestart);
 
   if (config.whatsapp.enabled) {
     try {

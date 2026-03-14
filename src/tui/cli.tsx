@@ -54,7 +54,7 @@ export function renderApp(config: TurboClawConfig) {
     },
   });
 
-  const orchestrator = startOrchestrator(store, containerManager, config, restartToken);
+  const orchestrator = startOrchestrator(store, containerManager, config, restartToken, doRestart);
 
   function renderTUI(bridge: WhatsAppBridge | null) {
     const instance = render(
