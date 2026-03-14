@@ -262,6 +262,7 @@ export function startOrchestrator(
         agentCommand,
         agentType,
         skillPaths,
+        gatewayPort: config.gateway.port,
       });
 
       activeContainers.set(run.id, container.containerId);

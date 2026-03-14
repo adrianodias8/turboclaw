@@ -24,6 +24,8 @@ export interface SpawnOptions {
   agentType?: "opencode" | "claude-code" | "codex";
   /** Discovered skill directory paths to mount into the container */
   skillPaths?: Array<{ name: string; hostDir: string }>;
+  /** Gateway port for TURBOCLAW_API env var */
+  gatewayPort?: number;
 }
 
 export interface ContainerInfo {

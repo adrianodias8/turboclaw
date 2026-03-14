@@ -120,6 +120,7 @@ export function createContainerManager(
         "-e", `TURBOCLAW_RUN_ID=${opts.runId}`,
         "-e", `TURBOCLAW_AGENT_ROLE=${opts.agentRole}`,
         "-e", `TURBOCLAW_MEMORY_PATH=/workspace/.turboclaw/memory`,
+        "-e", `TURBOCLAW_API=http://host.docker.internal:${opts.gatewayPort ?? 7800}`,
       );
 
       for (const [key, value] of Object.entries(opts.envVars)) {

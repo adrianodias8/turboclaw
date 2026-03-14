@@ -328,3 +328,63 @@ store.createCron({
 
 ### Working with self-improve mode
 When `agent_role === "self-improve"`, the container gets TurboClaw's own source at `/project`. Always create a feature branch, never touch main.
+
+## Task Self-Creation (Splitting Complex Tasks)
+
+You can create new tasks from inside a container by calling the TurboClaw API. The API URL is available in the `$TURBOCLAW_API` environment variable.
+
+**When to split tasks:**
+- The task is too complex to complete in a single run
+- Different parts need different agent roles (coding vs reviewing vs research)
+- Work can be parallelized (independent subtasks)
+- A multi-step workflow needs checkpoints
+
+**How to create subtasks from inside a container:**
+
+```bash
+# Read the API URL from environment
+API="${TURBOCLAW_API}"
+
+# Create a subtask
+curl -s -X POST "${API}/tasks" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Implement database migration",
+    "description": "Add new users table with email and created_at columns",
+    "agentRole": "coder",
+    "priority": 5
+  }'
+
+# Create a review subtask (lower priority so it runs after coding)
+curl -s -X POST "${API}/tasks" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Review database migration changes",
+    "description": "Check the migration for correctness, index coverage, and rollback safety",
+    "agentRole": "reviewer",
+    "priority": 3
+  }'
+
+# Check status of all tasks
+curl -s "${API}/tasks?status=queued"
+
+# Check your own task status
+curl -s "${API}/tasks/${TURBOCLAW_TASK_ID}"
+```
+
+**Task fields you can set:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `title` | string | required | Short task description |
+| `description` | string | null | Detailed prompt for the agent |
+| `agentRole` | string | "coder" | coder, reviewer, planner, self-improve |
+| `priority` | number | 0 | Higher = picked first (use 1-10) |
+
+**Strategies for complex tasks:**
+
+1. **Sequential** — create subtasks with decreasing priority so they run in order
+2. **Parallel** — create subtasks with equal priority; the orchestrator runs up to `maxConcurrency` at once
+3. **Pipeline** — create a pipeline with stages, then create a task assigned to it. The orchestrator advances through stages automatically, with optional approval gates between stages.
+
+**Always tell the user what you did.** When you split a task, report back in your output which subtasks you created and why, so the user can track them in the TUI or via the API.
