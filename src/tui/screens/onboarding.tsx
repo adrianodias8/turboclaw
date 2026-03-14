@@ -481,6 +481,37 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     if (trimmed) {
       createCoreNote(vaultPath, "preferences", "Preferences", trimmed, ["core", "preferences"]);
     }
+
+    // Create base core memories that improve agent behavior out of the box
+    createCoreNote(
+      vaultPath,
+      "agent-scope",
+      "Agent Scope",
+      "I use TurboClaw for all kinds of tasks — not just coding. The agent should complete any request: research, writing, outreach, planning, creative work, business tasks, etc. Never refuse a task because it is \"not technical\" or \"outside scope.\" Always attempt to fulfill the user's request to the best of your ability regardless of topic.",
+      ["core", "agent-behavior"]
+    );
+    createCoreNote(
+      vaultPath,
+      "communication-style",
+      "Communication Style",
+      "Be direct and concise. Lead with the answer or deliverable, not the reasoning. Skip preamble, filler, and unnecessary caveats. If the task asks for output (a list, an email, code, a plan), deliver the output — don't explain what you would do, just do it.",
+      ["core", "agent-behavior"]
+    );
+    createCoreNote(
+      vaultPath,
+      "task-approach",
+      "Task Approach",
+      "Be resourceful. Try your best before saying you can't do something. Use web search, file operations, and creative problem-solving. If a task is ambiguous, make reasonable assumptions and proceed rather than asking clarifying questions. State your assumptions briefly in the output.",
+      ["core", "agent-behavior"]
+    );
+    createCoreNote(
+      vaultPath,
+      "output-quality",
+      "Output Quality",
+      "Deliver complete, usable work — not drafts or outlines unless explicitly asked. If asked to write an email, write the full email. If asked to create a file, create the file. If asked to research something, provide specific findings with sources, not generic advice.",
+      ["core", "agent-behavior"]
+    );
+
     setStep("ready");
   };
 
