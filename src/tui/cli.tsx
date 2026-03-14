@@ -10,11 +10,13 @@ import { startOrchestrator } from "../orchestrator/loop";
 import { initVault } from "../memory/vault";
 import { startLibrarian } from "../memory/scheduler";
 import { startWhatsAppBridge, type WhatsAppBridge } from "../whatsapp/bridge";
-import { logger } from "../logger";
+import { logger, setLogFile } from "../logger";
 import { App } from "./app";
 import { Onboarding } from "./screens/onboarding";
 
 export function renderApp(config: TurboClawConfig) {
+  // Redirect logs to file so they don't corrupt the TUI
+  setLogFile(join(config.home, "turboclaw.log"));
   const db = new Database(config.dbPath);
   const store = createStore(db);
   const server = startGateway(store, config);

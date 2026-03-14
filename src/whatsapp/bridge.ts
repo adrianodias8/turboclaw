@@ -27,7 +27,7 @@ export interface WhatsAppBridgeOptions {
 }
 
 // Create a pino logger for Baileys — it expects pino specifically
-const baileysLogger = pino({ level: "warn" });
+const baileysLogger = pino({ level: "silent" });
 
 export async function startWhatsAppBridge(
   store: Store,
