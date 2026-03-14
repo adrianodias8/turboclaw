@@ -21,7 +21,7 @@ export function buildAgentCommand(agentType: AgentType): string[] {
       return ["codex", "exec", "--full-auto", "{prompt}"];
     case "opencode":
     default:
-      return ["opencode", "run", "--model", "{model}", "--quiet", "{prompt}"];
+      return ["opencode", "run", "--model", "{model}", "{prompt}"];
   }
 }
 
@@ -40,6 +40,8 @@ export function getAgentEnvVars(agentType: AgentType): Record<string, string> {
     default:
       return {
         OPENCODE_BROWSER_BACKEND: "agent",
+        // Remap localhost services to Docker host so Ollama etc. are reachable
+        OLLAMA_HOST: "http://host.docker.internal:11434",
       };
   }
 }

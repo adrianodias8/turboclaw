@@ -9,6 +9,9 @@ export function searchByFullText(vaultPath: string, query: string): SearchResult
   const results: SearchResult[] = [];
 
   for (const note of notes) {
+    // Skip core notes — they're injected separately via buildCoreContext
+    if (note.frontmatter.type === "core") continue;
+
     const text = `${note.frontmatter.title ?? ""} ${note.content}`.toLowerCase();
     let matchCount = 0;
     for (const term of terms) {

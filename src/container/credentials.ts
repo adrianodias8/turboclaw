@@ -54,6 +54,15 @@ export function resolveCredentialPaths(providerType: string): string[] {
       if (existsSync(codexDir)) paths.push(codexDir);
       break;
     }
+
+    case "opencode-config": {
+      // Mount the entire opencode config — user's provider setup lives here
+      const opencodeDir = join(HOME, ".config", "opencode");
+      if (existsSync(opencodeDir)) paths.push(opencodeDir);
+      const opencodeData = join(HOME, ".local", "share", "opencode");
+      if (existsSync(opencodeData)) paths.push(opencodeData);
+      break;
+    }
   }
 
   // Common: opencode general config (may contain cached tokens)
@@ -70,3 +79,4 @@ export function resolveCredentialPaths(providerType: string): string[] {
 
   return paths;
 }
+

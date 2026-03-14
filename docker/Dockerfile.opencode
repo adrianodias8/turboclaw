@@ -19,8 +19,9 @@ RUN npx @different-ai/opencode-browser@latest install || true
 # Create non-root user
 RUN useradd -m -s /bin/bash agent
 
-# Create workspace and memory directories
+# Create workspace, memory, and local state directories
 RUN mkdir -p /workspace/.turboclaw/memory && chown -R agent:agent /workspace
+RUN mkdir -p /home/agent/.local/state /home/agent/.local/share && chown -R agent:agent /home/agent/.local
 
 # Copy default opencode config (credentials configured at runtime via env vars)
 COPY --chown=agent opencode.json /home/agent/.config/opencode/opencode.json

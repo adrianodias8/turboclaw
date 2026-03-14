@@ -1,4 +1,6 @@
 import { logger } from "../logger";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 import type { Store } from "../tracker/store";
 import type { ContainerConfig, SpawnOptions, ContainerInfo } from "./types";
 import { DEFAULT_CONTAINER_CONFIG } from "./types";
@@ -48,6 +50,8 @@ export function createContainerManager(
         "--network", config.network,
         "--memory", config.memoryLimit,
         "--cpus", config.cpuLimit,
+        // Allow container to reach host services (Ollama, etc.)
+        "--add-host", "host.docker.internal:host-gateway",
         // Mount workspace
         "-v", `${opts.workspacePath}:/workspace`,
         // Working directory
@@ -64,10 +68,37 @@ export function createContainerManager(
         dockerArgs.push("-v", `${opts.mountProjectSource}:/project`);
       }
 
-      // Mount OAuth credential files for subscription-based providers
+      // Mount credential files, remapping host HOME paths to container HOME (/home/agent)
+      const hostHome = process.env.HOME ?? "/root";
+      const containerHome = "/home/agent";
       if (opts.credentialPaths) {
         for (const credPath of opts.credentialPaths) {
-          dockerArgs.push("-v", `${credPath}:${credPath}:ro`);
+          const containerPath = credPath.startsWith(hostHome)
+            ? containerHome + credPath.slice(hostHome.length)
+            : credPath;
+
+          // For opencode config dir: rewrite localhost URLs to host.docker.internal
+          // so the container can reach host services (Ollama, etc.)
+          if (containerPath.endsWith("/.config/opencode") && existsSync(join(credPath, "opencode.json"))) {
+            const tmpDir = join(opts.workspacePath, ".turboclaw", "opencode-config");
+            mkdirSync(tmpDir, { recursive: true });
+            const raw = readFileSync(join(credPath, "opencode.json"), "utf-8");
+            const rewritten = raw
+              .replace(/http:\/\/127\.0\.0\.1:/g, "http://host.docker.internal:")
+              .replace(/http:\/\/localhost:/g, "http://host.docker.internal:");
+            writeFileSync(join(tmpDir, "opencode.json"), rewritten);
+            dockerArgs.push("-v", `${tmpDir}/opencode.json:${containerPath}/opencode.json:ro`);
+            // Also mount node_modules if they exist (for plugins)
+            const nodeModules = join(credPath, "node_modules");
+            if (existsSync(nodeModules)) {
+              dockerArgs.push("-v", `${nodeModules}:${containerPath}/node_modules:ro`);
+            }
+            continue;
+          }
+
+          // Data dirs (share/state) need read-write for DB and logs; config dirs are read-only
+          const isDataDir = containerPath.includes("/.local/share/") || containerPath.includes("/.local/state/");
+          dockerArgs.push("-v", `${credPath}:${containerPath}${isDataDir ? "" : ":ro"}`);
         }
       }
 

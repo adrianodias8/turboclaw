@@ -11,6 +11,11 @@
         "apiKey": "{env:OPENAI_API_KEY}"
       }
     },
+    "ollama": {
+      "options": {
+        "baseURL": "http://host.docker.internal:11434/v1"
+      }
+    },
     "custom": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Custom Provider",

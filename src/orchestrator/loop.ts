@@ -72,7 +72,8 @@ export function startOrchestrator(
     const envVars: Record<string, string> = {};
     const agentType: AgentType = config.agent ?? "opencode";
 
-    if (config.provider) {
+    // For opencode-config, skip all env var injection — opencode uses its own mounted config
+    if (config.provider && config.provider.type !== "opencode-config") {
       envVars.TURBOCLAW_PROVIDER_TYPE = config.provider.type;
 
       if (config.provider.apiKey) {
@@ -176,7 +177,18 @@ export function startOrchestrator(
     let agentCommand = buildAgentCommand(agentType);
 
     // For OpenCode, resolve the model string from provider config
-    if (agentType === "opencode" && config.provider) {
+    // For opencode-config, strip --model entirely — let opencode use its own config
+    if (agentType === "opencode" && config.provider?.type === "opencode-config") {
+      const filtered: string[] = [];
+      for (let i = 0; i < agentCommand.length; i++) {
+        if (agentCommand[i] === "--model") {
+          i++; // skip the model value placeholder
+        } else {
+          filtered.push(agentCommand[i]!);
+        }
+      }
+      agentCommand = filtered;
+    } else if (agentType === "opencode" && config.provider) {
       const model = resolveOpenCodeModel(config.provider);
       agentCommand = agentCommand.map(arg => arg === "{model}" ? model : arg);
     } else if (agentType === "opencode") {

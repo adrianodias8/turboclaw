@@ -17,13 +17,7 @@ interface OnboardingProps {
 type Step =
   | "docker-check"
   | "provider"
-  | "api-key"
   | "oauth-token"
-  | "oauth-flow"
-  | "cred-check"
-  | "ollama-detect"
-  | "custom-url"
-  | "agent-select"
   | "workspace-root"
   | "build-image"
   | "whatsapp"
@@ -40,28 +34,13 @@ const HOME = process.env.HOME ?? "~";
 
 const PROVIDER_OPTIONS = [
   { label: "Claude Code (subscription — recommended)", value: "claude-code" },
-  { label: "Anthropic (API key)", value: "anthropic" },
-  { label: "GitHub Copilot (OAuth device flow)", value: "copilot" },
-  { label: "ChatGPT (OpenAI OAuth)", value: "chatgpt" },
-  { label: "Claude subscription (via OpenCode)", value: "claude-sub" },
-  { label: "Codex (OpenAI subscription)", value: "codex" },
-  { label: "OpenAI (API key)", value: "openai" },
-  { label: "Ollama (local, no key needed)", value: "ollama" },
-  { label: "Custom provider", value: "custom" },
+  { label: "Use opencode config (mounts host ~/.config/opencode/)", value: "opencode-config" },
 ];
-
-const OAUTH_PROVIDERS = new Set(["copilot", "chatgpt", "claude-sub"]);
-const API_KEY_PROVIDERS = new Set(["anthropic", "openai"]);
 
 export function Onboarding({ config, onComplete }: OnboardingProps) {
   const { exit } = useApp();
   const [step, setStep] = useState<Step>("docker-check");
   const [dockerOk, setDockerOk] = useState<boolean | null>(null);
-  const [provider, setProvider] = useState<string>("");
-  const [oauthStatus, setOauthStatus] = useState<"running" | "success" | "error">("running");
-  const [oauthMessage, setOauthMessage] = useState("");
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [credCheckResult, setCredCheckResult] = useState<"checking" | "found" | "missing">("checking");
   const [buildStatus, setBuildStatus] = useState<"building" | "success" | "error">("building");
   const [buildMessage, setBuildMessage] = useState("");
   const [enableWhatsapp, setEnableWhatsapp] = useState<boolean | null>(null);
@@ -89,134 +68,6 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     });
   }, [step]);
 
-  // OAuth flow handler (for Copilot, ChatGPT, Claude-sub via OpenCode)
-  useEffect(() => {
-    if (step !== "oauth-flow") return;
-
-    async function runOauth() {
-      if (provider === "copilot") {
-        setOauthMessage("Running `opencode auth login` — check your browser for the GitHub device code...");
-        const proc = Bun.spawn(["opencode", "auth", "login"], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const stderr = await new Response(proc.stderr).text();
-        const exitCode = await proc.exited;
-        if (exitCode === 0) {
-          config.provider = { type: "copilot" };
-          saveConfig(config);
-          setOauthStatus("success");
-          setOauthMessage("GitHub Copilot authenticated successfully.");
-          setTimeout(() => setStep("agent-select"), 500);
-        } else {
-          setOauthStatus("error");
-          setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
-        }
-      } else if (provider === "chatgpt") {
-        setOauthMessage("Running OpenAI OAuth (PKCE) flow — check your browser...");
-        const proc = Bun.spawn(["opencode", "auth", "login", "--provider", "openai"], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const stderr = await new Response(proc.stderr).text();
-        const exitCode = await proc.exited;
-        if (exitCode === 0) {
-          config.provider = { type: "chatgpt" };
-          saveConfig(config);
-          setOauthStatus("success");
-          setOauthMessage("ChatGPT (OpenAI OAuth) authenticated successfully.");
-          setTimeout(() => setStep("agent-select"), 500);
-        } else {
-          setOauthStatus("error");
-          setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
-        }
-      } else if (provider === "claude-sub") {
-        setOauthMessage("Running Anthropic OAuth flow — check your browser...");
-        const proc = Bun.spawn(["opencode", "auth", "login", "--provider", "anthropic"], {
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const stderr = await new Response(proc.stderr).text();
-        const exitCode = await proc.exited;
-        if (exitCode === 0) {
-          config.provider = { type: "claude-sub" };
-          saveConfig(config);
-          setOauthStatus("success");
-          setOauthMessage("Claude subscription authenticated successfully.");
-          setTimeout(() => setStep("agent-select"), 500);
-        } else {
-          setOauthStatus("error");
-          setOauthMessage(`Auth failed: ${stderr.slice(0, 200)}`);
-        }
-      }
-    }
-
-    runOauth();
-  }, [step, provider]);
-
-  // Credential check for Codex
-  useEffect(() => {
-    if (step !== "cred-check") return;
-
-    const credDir = join(HOME, ".codex");
-    if (existsSync(credDir)) {
-      setCredCheckResult("found");
-      config.provider = { type: "codex" };
-      saveConfig(config);
-      setTimeout(() => setStep("agent-select"), 500);
-    } else {
-      setCredCheckResult("missing");
-    }
-  }, [step, provider]);
-
-  // Ollama detection
-  useEffect(() => {
-    if (step !== "ollama-detect") return;
-
-    async function detectOllama() {
-      try {
-        const resp = await fetch("http://localhost:11434/api/tags");
-        if (!resp.ok) throw new Error("not reachable");
-        const data = (await resp.json()) as { models?: Array<{ name: string }> };
-        const models = (data.models ?? []).map((m) => m.name);
-        setOllamaModels(models);
-        config.provider = {
-          type: "ollama",
-          baseUrl: "http://host.docker.internal:11434",
-          model: models[0] ?? "llama3",
-        };
-        saveConfig(config);
-        setStep("agent-select");
-      } catch {
-        setOllamaModels([]);
-        config.provider = { type: "ollama", baseUrl: "http://host.docker.internal:11434" };
-        saveConfig(config);
-        setStep("agent-select");
-      }
-    }
-
-    detectOllama();
-  }, [step]);
-
-  const suggestAgent = (providerType: string | undefined): "opencode" | "claude-code" | "codex" => {
-    switch (providerType) {
-      case "claude-code": return "claude-code";
-      case "codex": return "codex";
-      default: return "opencode";
-    }
-  };
-
-  const AGENT_OPTIONS = [
-    { label: "OpenCode (recommended — multi-provider, browser, skills)", value: "opencode" },
-    { label: "Claude Code (Anthropic only)", value: "claude-code" },
-    { label: "Codex (OpenAI only)", value: "codex" },
-  ];
-
-  const handleAgentSelect = (value: string) => {
-    config.agent = value as "opencode" | "claude-code" | "codex";
-    saveConfig(config);
-    setStep("workspace-root");
-  };
 
   const handleWorkspaceRoot = (value: string) => {
     const trimmed = value.trim();
@@ -346,22 +197,14 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   }, [step]);
 
   const handleProviderSelect = (value: string) => {
-    setProvider(value);
     if (value === "claude-code") {
-      // Claude Code needs an OAuth token or API key for containers
       setStep("oauth-token");
-    } else if (value === "codex") {
-      setCredCheckResult("checking");
-      setStep("cred-check");
-    } else if (OAUTH_PROVIDERS.has(value)) {
-      setOauthStatus("running");
-      setStep("oauth-flow");
-    } else if (API_KEY_PROVIDERS.has(value)) {
-      setStep("api-key");
-    } else if (value === "ollama") {
-      setStep("ollama-detect");
-    } else if (value === "custom") {
-      setStep("custom-url");
+    } else if (value === "opencode-config") {
+      // Mount host opencode config — no additional auth needed
+      config.provider = { type: "opencode-config" };
+      config.agent = "opencode";
+      saveConfig(config);
+      setStep("workspace-root");
     }
   };
 
@@ -369,28 +212,14 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     const trimmed = value.trim();
     if (!trimmed) return;
 
-    // Detect if it's an API key or OAuth token
     if (trimmed.startsWith("sk-ant-")) {
       config.provider = { type: "anthropic", apiKey: trimmed };
     } else {
       config.provider = { type: "claude-code", apiKey: trimmed };
     }
+    config.agent = "claude-code";
     saveConfig(config);
-    setStep("agent-select");
-  };
-
-  const handleApiKey = (value: string) => {
-    if (!value.trim()) return;
-    config.provider = { type: provider, apiKey: value.trim() };
-    saveConfig(config);
-    setStep("agent-select");
-  };
-
-  const handleCustomUrl = (value: string) => {
-    if (!value.trim()) return;
-    config.provider = { type: "custom", baseUrl: value.trim() };
-    saveConfig(config);
-    setStep("agent-select");
+    setStep("workspace-root");
   };
 
   const handleWhatsappChoice = (value: string) => {
@@ -399,7 +228,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       setStep("whatsapp-method");
     } else {
       setEnableWhatsapp(false);
-      config.whatsapp = { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false };
+      config.whatsapp = { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false };
       saveConfig(config);
       setStep("core-name");
     }
@@ -417,6 +246,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       config.whatsapp = {
         enabled: true,
         allowedNumbers: [],
+        allowedGroups: [],
         notifyOnComplete: true,
         notifyOnFail: true,
       };
@@ -436,6 +266,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     config.whatsapp = {
       enabled: true,
       allowedNumbers: [cleaned],
+      allowedGroups: [],
       notifyOnComplete: true,
       notifyOnFail: true,
     };
@@ -542,30 +373,13 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         setDockerOk(null);
         setStep("docker-check");
       }
-      if (step === "oauth-flow" && oauthStatus === "error") {
-        if (input === "r") {
-          setOauthStatus("running");
-          setOauthMessage("");
-          setStep("oauth-flow");
-        } else {
-          setStep("provider");
-        }
-      }
-      if (step === "cred-check" && credCheckResult === "missing") {
-        if (input === "r") {
-          setCredCheckResult("checking");
-          setStep("cred-check");
-        } else {
-          setStep("provider");
-        }
-      }
       if (step === "build-image" && buildStatus === "error") {
         if (input === "r") {
           setBuildStatus("building");
           setBuildMessage("");
           setStep("build-image");
         } else {
-          setStep("agent-select");
+          setStep("provider");
         }
       }
     }
@@ -618,83 +432,6 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         </Box>
       )}
 
-      {/* OAuth flow (Copilot, ChatGPT, Claude-sub) */}
-      {step === "oauth-flow" && (
-        <Box flexDirection="column">
-          {oauthStatus === "running" && (
-            <Spinner label={oauthMessage || "Authenticating..."} />
-          )}
-          {oauthStatus === "success" && (
-            <Text color="green">{oauthMessage}</Text>
-          )}
-          {oauthStatus === "error" && (
-            <Box flexDirection="column">
-              <Text color="red">{oauthMessage}</Text>
-              <Text dimColor>Press [r] to retry or [b] to go back to provider selection.</Text>
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {/* Credential check for Codex */}
-      {step === "cred-check" && (
-        <Box flexDirection="column">
-          {credCheckResult === "checking" && (
-            <Spinner label="Checking for ~/.codex/ credentials..." />
-          )}
-          {credCheckResult === "found" && (
-            <Text color="green">Codex credentials found at ~/.codex/</Text>
-          )}
-          {credCheckResult === "missing" && (
-            <Box flexDirection="column">
-              <Text color="yellow">Credential directory not found: ~/.codex/</Text>
-              <Text>Run `codex auth` first, then press [r] to retry or [b] to go back.</Text>
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {/* API key */}
-      {step === "api-key" && (
-        <Box flexDirection="column">
-          <Text bold>Enter your {provider} API key:</Text>
-          <TextInput
-            placeholder="sk-..."
-            onSubmit={handleApiKey}
-          />
-        </Box>
-      )}
-
-      {/* Ollama detection */}
-      {step === "ollama-detect" && (
-        <Box gap={1}>
-          <Spinner label="Detecting Ollama at localhost:11434..." />
-        </Box>
-      )}
-
-      {/* Custom URL */}
-      {step === "custom-url" && (
-        <Box flexDirection="column">
-          <Text bold>Enter your provider base URL:</Text>
-          <TextInput
-            placeholder="https://api.example.com/v1"
-            onSubmit={handleCustomUrl}
-          />
-        </Box>
-      )}
-
-      {/* Agent selection */}
-      {step === "agent-select" && (
-        <Box flexDirection="column">
-          <Text bold>Which agent should run your tasks?</Text>
-          <Text dimColor>
-            Suggested: <Text color="cyan">{suggestAgent(config.provider?.type)}</Text> based on your provider
-          </Text>
-          <Box marginTop={1} />
-          <Select options={AGENT_OPTIONS} onChange={handleAgentSelect} />
-        </Box>
-      )}
-
       {/* Workspace root */}
       {step === "workspace-root" && (
         <Box flexDirection="column">
@@ -719,7 +456,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
           {buildStatus === "error" && (
             <Box flexDirection="column">
               <Text color="red">{buildMessage}</Text>
-              <Text dimColor>Press [r] to retry or [b] to go back to agent selection.</Text>
+              <Text dimColor>Press [r] to retry or [b] to go back to provider selection.</Text>
             </Box>
           )}
         </Box>
@@ -874,11 +611,6 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
             <Text>
               WhatsApp: <Text color="green">enabled</Text>
               <Text dimColor> ({config.whatsapp.allowedNumbers.join(", ")})</Text>
-            </Text>
-          )}
-          {ollamaModels.length > 0 && (
-            <Text>
-              Ollama models: <Text color="yellow">{ollamaModels.join(", ")}</Text>
             </Text>
           )}
           {coreName && (

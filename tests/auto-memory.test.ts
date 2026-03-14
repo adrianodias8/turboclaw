@@ -39,7 +39,7 @@ afterEach(() => {
 describe("maybeCreateTaskMemory", () => {
   it("creates a task log note for sufficient output", () => {
     const task = makeTask();
-    const output = "The weather in Brussels is 12°C and cloudy with a chance of rain in the afternoon.";
+    const output = "The weather in Brussels is 12°C and cloudy with a chance of rain in the afternoon. Expect showers throughout the evening with temperatures dropping to around 8°C overnight.";
     const result = maybeCreateTaskMemory(vaultPath, task, output);
 
     expect(result).not.toBeNull();
@@ -77,7 +77,7 @@ describe("maybeCreateTaskMemory", () => {
 
   it("generates auto-prefixed tags from title", () => {
     const task = makeTask({ title: "Check the weather in Brussels" });
-    const output = "The weather in Brussels is 12°C and cloudy with a chance of rain.";
+    const output = "The weather in Brussels is 12°C and cloudy with a chance of rain. Expect showers throughout the evening with temperatures dropping to around 8°C overnight.";
     const result = maybeCreateTaskMemory(vaultPath, task, output);
 
     expect(result).not.toBeNull();
