@@ -212,11 +212,9 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     const trimmed = value.trim();
     if (!trimmed) return;
 
-    if (trimmed.startsWith("sk-ant-")) {
-      config.provider = { type: "anthropic", apiKey: trimmed };
-    } else {
-      config.provider = { type: "claude-code", apiKey: trimmed };
-    }
+    // Always set provider type to "claude-code" regardless of key format.
+    // The orchestrator inspects the key prefix to set the right env var.
+    config.provider = { type: "claude-code", apiKey: trimmed };
     config.agent = "claude-code";
     saveConfig(config);
     setStep("workspace-root");

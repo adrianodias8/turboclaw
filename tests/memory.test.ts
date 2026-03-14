@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { initVault, parseFrontmatter, extractWikilinks, readNote, listNotes } from "../src/memory/vault";
 import { searchByFullText, searchByTag, searchByLink, findOrphans } from "../src/memory/search";
-import { createFleetingNote, createPermanentNote, createTaskLog, createMoc } from "../src/memory/writer";
+import { createFleetingNote, createPermanentNote, createTaskLog, createMoc, createCoreNote } from "../src/memory/writer";
 import { buildContext } from "../src/memory/context";
 import { processInbox } from "../src/memory/librarian";
 import { renderFrontmatter } from "../src/memory/templates";
@@ -140,6 +140,26 @@ describe("search", () => {
 
     const results = searchByLink(TEST_VAULT, "Target Note");
     expect(results).toHaveLength(1);
+  });
+});
+
+describe("core note exclusion from search", () => {
+  it("searchByFullText excludes core notes", () => {
+    createCoreNote(TEST_VAULT, "auth-core", "Auth Core Rules", "Always validate JWT tokens at the boundary", ["core", "auth"]);
+    createPermanentNote(TEST_VAULT, "Auth Patterns", "JWT tokens should be validated at boundaries", ["auth"]);
+
+    const results = searchByFullText(TEST_VAULT, "JWT tokens");
+    expect(results).toHaveLength(1);
+    expect(results[0]!.note.frontmatter.title).toBe("Auth Patterns");
+  });
+
+  it("buildContext excludes core notes from search results", () => {
+    createCoreNote(TEST_VAULT, "logging-core", "Logging Core", "Always use structured logging with correlation IDs", ["core"]);
+    createPermanentNote(TEST_VAULT, "Logging Tips", "Structured logging helps with debugging", ["patterns"]);
+
+    const ctx = buildContext(TEST_VAULT, "structured logging", [], 5);
+    expect(ctx).toContain("Logging Tips");
+    expect(ctx).not.toContain("Logging Core");
   });
 });
 

@@ -152,7 +152,19 @@ export function startOrchestrator(
     // Inject recent conversation history for WhatsApp tasks
     if (task.reply_jid) {
       const history = store.getRecentChatMessages(task.reply_jid, 20);
-      const previous = history.filter(m => m.task_id !== task.id);
+      const previous = history
+        .filter(m => m.task_id !== task.id)
+        .filter(m => {
+          // Defense-in-depth: drop noisy assistant messages that shouldn't
+          // have been stored (e.g. "Done. (TASKID)", failure notifications,
+          // raw JSON error payloads)
+          if (m.role !== "assistant") return true;
+          const c = m.content.trim();
+          if (/^Done\.\s*\(/.test(c)) return false;
+          if (/^Sorry, that failed/.test(c)) return false;
+          if (/^\{/.test(c)) return false;
+          return true;
+        });
       if (previous.length > 0) {
         const lines = previous.map(m =>
           m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`

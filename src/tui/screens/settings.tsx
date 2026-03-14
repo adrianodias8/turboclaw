@@ -18,6 +18,17 @@ interface SettingItem {
 
 type SubView = "main" | "groups";
 
+const PROVIDER_LABELS: Record<string, string> = {
+  "opencode-config": "OpenCode (host config)",
+  "claude-code": "Claude Code",
+  "anthropic": "Anthropic API",
+  "openai": "OpenAI",
+  "chatgpt": "ChatGPT",
+  "copilot": "Copilot",
+  "codex": "Codex",
+  "custom": "Custom",
+};
+
 export function Settings({ config, updateConfig, whatsappBridge }: SettingsProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [hint, setHint] = useState("");
@@ -78,7 +89,9 @@ export function Settings({ config, updateConfig, whatsappBridge }: SettingsProps
     },
     {
       label: "Provider",
-      value: config.provider?.type ?? "not configured",
+      value: config.provider?.type
+        ? (PROVIDER_LABELS[config.provider.type] ?? config.provider.type)
+        : "not configured",
       readOnly: true,
       action: () => setHint("Run `bun run src/index.ts setup` to change provider"),
     },
@@ -120,14 +133,8 @@ export function Settings({ config, updateConfig, whatsappBridge }: SettingsProps
     {
       label: "Agent type",
       value: config.agent ?? "opencode",
-      action: () => {
-        setHint("Switching agent may require a different Docker image");
-        const agents = ["opencode", "claude-code", "codex"] as const;
-        const current = config.agent ?? "opencode";
-        const idx = agents.indexOf(current);
-        const next = agents[(idx + 1) % agents.length]!;
-        updateConfig((c) => ({ ...c, agent: next }));
-      },
+      readOnly: true,
+      action: () => setHint("Agent type is set by provider. Re-run setup to change."),
     },
   ];
 

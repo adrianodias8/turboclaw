@@ -43,9 +43,8 @@ export function startNotifier(
             ? `Sorry, that failed:\n${errOutput.slice(0, 1000)}`
             : `Sorry, that failed. (${t.id.slice(0, 8)})`;
           await sendMessage(msg, jid);
-          if (jid) {
-            store.addChatMessage(jid, "assistant", msg.slice(0, 4000), t.id);
-          }
+          // Don't store failure notifications as chat history — they're system
+          // messages that would pollute future agent prompts
         } catch (err) {
           logger.warn("WhatsApp notify failed:", err);
         }
@@ -71,8 +70,10 @@ export function startNotifier(
           // Send just the output for a natural conversational feel
           const msg = output || `Done. (${t.id.slice(0, 8)})`;
           await sendMessage(msg.slice(0, 4000), jid);
-          if (jid) {
-            store.addChatMessage(jid, "assistant", msg.slice(0, 4000), t.id);
+          // Only store real agent output as chat history — skip the "Done."
+          // fallback to avoid polluting future prompts
+          if (jid && output) {
+            store.addChatMessage(jid, "assistant", output.slice(0, 4000), t.id);
           }
         } catch (err) {
           logger.warn("WhatsApp notify failed:", err);

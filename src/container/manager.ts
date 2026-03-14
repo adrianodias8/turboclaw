@@ -4,6 +4,7 @@ import { join } from "path";
 import type { Store } from "../tracker/store";
 import type { ContainerConfig, SpawnOptions, ContainerInfo } from "./types";
 import { DEFAULT_CONTAINER_CONFIG } from "./types";
+import { remapHomePath, rewriteLocalhostUrls } from "./utils";
 
 export interface ContainerManager {
   spawn(opts: SpawnOptions): Promise<ContainerInfo>;
@@ -70,12 +71,9 @@ export function createContainerManager(
 
       // Mount credential files, remapping host HOME paths to container HOME (/home/agent)
       const hostHome = process.env.HOME ?? "/root";
-      const containerHome = "/home/agent";
       if (opts.credentialPaths) {
         for (const credPath of opts.credentialPaths) {
-          const containerPath = credPath.startsWith(hostHome)
-            ? containerHome + credPath.slice(hostHome.length)
-            : credPath;
+          const containerPath = remapHomePath(credPath, hostHome);
 
           // For opencode config dir: rewrite localhost URLs to host.docker.internal
           // so the container can reach host services (Ollama, etc.)
@@ -83,9 +81,7 @@ export function createContainerManager(
             const tmpDir = join(opts.workspacePath, ".turboclaw", "opencode-config");
             mkdirSync(tmpDir, { recursive: true });
             const raw = readFileSync(join(credPath, "opencode.json"), "utf-8");
-            const rewritten = raw
-              .replace(/http:\/\/127\.0\.0\.1:/g, "http://host.docker.internal:")
-              .replace(/http:\/\/localhost:/g, "http://host.docker.internal:");
+            const rewritten = rewriteLocalhostUrls(raw);
             writeFileSync(join(tmpDir, "opencode.json"), rewritten);
             dockerArgs.push("-v", `${tmpDir}/opencode.json:${containerPath}/opencode.json:ro`);
             // Also mount node_modules if they exist (for plugins)
