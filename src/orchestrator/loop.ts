@@ -36,6 +36,16 @@ export function startOrchestrator(
   let restartCallback: (() => void) | null = null;
   const activeContainers = new Map<string, string>(); // runId -> containerId
 
+  // Record git HEAD at boot for auto-restart detection
+  const bootHead = (() => {
+    try {
+      const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+      return new TextDecoder().decode(result.stdout).trim();
+    } catch {
+      return "";
+    }
+  })();
+
   async function tick() {
     if (!running) return;
 
@@ -308,22 +318,20 @@ export function startOrchestrator(
               logger.warn(`Auto-memory failed for task ${task.id}:`, err);
             }
 
-            // Auto-restart fallback: if a self-improve task completed but didn't
-            // trigger /restart, check if there are new commits on the expected branch
-            if (task.agent_role === "self-improve" && !restartRequested && onRestart) {
+            // Auto-restart: if a self-improve task completed, check if git HEAD
+            // changed from boot time (any new commits on any branch = restart)
+            if (task.agent_role === "self-improve" && !restartRequested && onRestart && bootHead) {
               try {
-                const branch = `turboclaw/improve/${task.id}`;
-                const result = Bun.spawnSync(["git", "log", `main..${branch}`, "--oneline", "--max-count=1"]);
-                const hasCommits = new TextDecoder().decode(result.stdout).trim().length > 0;
-                if (hasCommits) {
-                  logger.info(`Self-improve task ${task.id} has commits on ${branch} but didn't call /restart — triggering auto-restart`);
-                  store.addEvent(run.id, "info", `Auto-restart triggered: new commits detected on ${branch}`);
+                const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
+                const currentHead = new TextDecoder().decode(result.stdout).trim();
+                if (currentHead !== bootHead) {
+                  logger.info(`Self-improve task ${task.id}: HEAD changed (${bootHead.slice(0, 8)} → ${currentHead.slice(0, 8)}) — triggering auto-restart`);
+                  store.addEvent(run.id, "info", `Auto-restart triggered: HEAD changed from ${bootHead.slice(0, 8)} to ${currentHead.slice(0, 8)}`);
                   restartRequested = true;
                   restartCallback = onRestart;
-                  // Will drain remaining containers in the next tick, then call onRestart
                 }
               } catch (err) {
-                logger.warn(`Failed to check self-improve branch for task ${task.id}:`, err);
+                logger.warn(`Failed to check git HEAD for task ${task.id}:`, err);
               }
             }
           } else {

@@ -24,6 +24,8 @@ export interface WhatsAppBridgeOptions {
   onQR?: (qr: string) => void;
   /** Called when a pairing code is generated. Log it or show in TUI. */
   onPairingCode?: (code: string) => void;
+  /** Called when user sends /restart via WhatsApp. */
+  onRestart?: () => void;
 }
 
 // Create a pino logger for Baileys — it expects pino specifically
@@ -334,6 +336,16 @@ export async function startWhatsAppBridge(
               reply = cancelled
                 ? `Cancelled: ${cancelled.title} (${cancelled.id.slice(0, 8)})`
                 : `Could not cancel task.`;
+            }
+            break;
+          }
+          case "restart": {
+            if (opts.onRestart) {
+              reply = "Restarting TurboClaw...";
+              // Defer restart so the reply sends first
+              setTimeout(() => opts.onRestart!(), 2000);
+            } else {
+              reply = "Restart not available.";
             }
             break;
           }

@@ -331,31 +331,22 @@ When `agent_role === "self-improve"`, the container gets TurboClaw's own source 
 
 ### Self-Improve Restart Protocol
 
-After modifying TurboClaw's source in self-improve mode, the host process still runs old code. To apply your changes:
+After modifying TurboClaw's source in self-improve mode, the host process still runs old code. **Restart is automatic** — you just need to commit and exit.
 
 1. **Run tests** inside the container: `bun test`
-2. **Commit** your changes to the feature branch
-3. **Trigger restart** so the host picks up new code:
-   ```bash
-   curl -X POST "${TURBOCLAW_API}/restart" \
-     -H "X-Restart-Token: ${TURBOCLAW_RESTART_TOKEN}"
-   ```
-4. **Create a follow-up task** to verify your changes after the restart
+2. **Commit** your changes to the feature branch (uncommitted changes are lost!)
+3. **Exit normally** — TurboClaw auto-detects your commits and restarts itself
 
-**What happens:**
-- The host validates you're on a feature branch (not main/master)
-- The host checks no protected files were modified (.env, config.json, turboclaw.db)
-- Active containers drain (finish their current work)
-- TurboClaw exits with code 75
+**What happens automatically after you exit:**
+- The orchestrator checks your branch for new commits vs main
+- If commits are found, it drains active containers and exits with code 75
 - The wrapper script (`scripts/run.sh`) sees exit 75 and re-execs bun
 - TurboClaw restarts with your new code
-- Your follow-up task gets picked up and can verify the changes
 
-**Error cases:**
-- Wrong/missing token → 403
-- On main/master branch → 400
-- Protected files modified → 400
-- Restart not available (no token configured) → 404
+**Important — do NOT:**
+- Create follow-up tasks to "restart TurboClaw" — restart is automatic
+- Try to call `POST /restart` yourself — it happens automatically
+- You MAY create a follow-up task to *verify* your changes after restart (optional)
 
 ## Task Self-Creation (Splitting Complex Tasks)
 

@@ -52,9 +52,12 @@ export function selfImprovePreamble(taskId: string): string {
     ``,
     `# After making changes:`,
     `# 1. Run tests: bun test`,
-    `# 2. Commit to your branch`,
-    `# 3. Trigger restart so the host picks up your changes:`,
-    `#    curl -X POST "\${TURBOCLAW_API}/restart" -H "X-Restart-Token: \${TURBOCLAW_RESTART_TOKEN}"`,
-    `# 4. Create a follow-up task to verify changes after restart`,
+    `# 2. Commit to your branch (REQUIRED — uncommitted changes are lost)`,
+    `# 3. Exit normally — TurboClaw will auto-detect your commits and restart itself`,
+    `#`,
+    `# IMPORTANT:`,
+    `# - Do NOT create follow-up tasks to "restart TurboClaw" — restart is automatic`,
+    `# - Do NOT try to call POST /restart yourself — it happens automatically after you exit`,
+    `# - You MAY create a follow-up task to VERIFY your changes after restart (optional)`,
   ].join("\n");
 }

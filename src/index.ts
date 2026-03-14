@@ -61,7 +61,9 @@ async function bootHeadless() {
 
   if (config.whatsapp.enabled) {
     try {
-      whatsappBridge = await startWhatsAppBridge(store, config);
+      whatsappBridge = await startWhatsAppBridge(store, config, {
+        onRestart: doRestart,
+      });
       logger.info("WhatsApp bridge started (QR code printed to terminal if not yet paired)");
     } catch (err) {
       logger.warn("WhatsApp bridge failed to start:", err);

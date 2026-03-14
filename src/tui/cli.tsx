@@ -71,7 +71,7 @@ export function renderApp(config: TurboClawConfig) {
   }
 
   if (config.whatsapp.enabled) {
-    startWhatsAppBridge(store, config)
+    startWhatsAppBridge(store, config, { onRestart: doRestart })
       .then((bridge) => {
         whatsappBridge = bridge;
         logger.info("WhatsApp bridge started");
