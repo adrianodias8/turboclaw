@@ -3,6 +3,7 @@ import type { Store } from "../tracker/store";
 import type { ContainerManager } from "../container/manager";
 import type { TurboClawConfig } from "../config";
 import { validateSelfImproveTask, buildSelfImproveEnv, selfImprovePreamble } from "../container/self-improve";
+import { completionProtocol } from "../container/completion";
 import { resolveCredentialPaths } from "../container/credentials";
 import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths, resolveOpenCodeModel } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
@@ -186,6 +187,10 @@ export function startOrchestrator(
     if (coreContext) {
       prompt = `${coreContext}\n\n---\n\n${prompt}`;
     }
+
+    // Completion protocol (outermost — agent sees this first)
+    const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
+    prompt = `${completionProtocol(task.id, apiUrl)}${prompt}`;
 
     // Resolve agent CLI command based on configured agent type
     let agentCommand = buildAgentCommand(agentType);

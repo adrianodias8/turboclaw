@@ -388,3 +388,21 @@ curl -s "${API}/tasks/${TURBOCLAW_TASK_ID}"
 3. **Pipeline** — create a pipeline with stages, then create a task assigned to it. The orchestrator advances through stages automatically, with optional approval gates between stages.
 
 **Always tell the user what you did.** When you split a task, report back in your output which subtasks you created and why, so the user can track them in the TUI or via the API.
+
+## Autonomous Continuation (Completion Protocol)
+
+Every task prompt includes a **Completion Protocol** that you must follow before exiting. The protocol requires you to:
+
+1. **Self-assess** — re-read the original request and verify your work addresses every part of it
+2. **If complete** — report what you did and exit
+3. **If incomplete** — create a follow-up task via the API with:
+   - What was already done (so the next agent doesn't repeat work)
+   - What specifically remains
+   - Any context or gotchas for the next agent
+
+This creates an autonomous loop: complex tasks keep spawning follow-ups until the work is fully done, without human intervention. The orchestrator picks up follow-up tasks automatically.
+
+**Anti-patterns to avoid:**
+- Don't create follow-ups for trivial cleanup
+- Don't create circular follow-ups — if an approach failed, explain why so the next agent tries differently
+- Don't create more than 2-3 follow-ups from a single task — if the work is that complex, create a pipeline instead
