@@ -7,6 +7,7 @@ import type { TurboClawConfig } from "../../config";
 import { saveConfig } from "../../config";
 import { initVault } from "../../memory/vault";
 import { createCoreNote } from "../../memory/writer";
+import { QRDisplay } from "../components/qr-display";
 
 interface OnboardingProps {
   config: TurboClawConfig;
@@ -26,7 +27,9 @@ type Step =
   | "workspace-root"
   | "build-image"
   | "whatsapp"
+  | "whatsapp-method"
   | "whatsapp-number"
+  | "whatsapp-pair"
   | "core-name"
   | "core-role"
   | "core-context"
@@ -65,6 +68,10 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   const [coreName, setCoreName] = useState("");
   const [coreRole, setCoreRole] = useState("");
   const [coreContext, setCoreContext] = useState("");
+  const [waQR, setWaQR] = useState<string | null>(null);
+  const [waPairingCode, setWaPairingCode] = useState<string | null>(null);
+  const [waStatus, setWaStatus] = useState<"connecting" | "connected" | "error">("connecting");
+  const [waError, setWaError] = useState("");
 
   // Step 1: Check Docker
   useEffect(() => {
@@ -275,6 +282,62 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
     doBuild();
   }, [step]);
 
+  // WhatsApp pairing: start bridge and show QR/pairing code
+  useEffect(() => {
+    if (step !== "whatsapp-pair") return;
+
+    let bridge: { stop(): void; isConnected(): boolean } | null = null;
+    let settled = false;
+
+    async function startPairing() {
+      try {
+        const { createStore } = await import("../../tracker/store");
+        const { Database } = await import("bun:sqlite");
+        const db = new Database(join(config.home, "turboclaw.db"));
+        const store = createStore(db);
+
+        const { startWhatsAppBridge } = await import("../../whatsapp/bridge");
+        bridge = await startWhatsAppBridge(store, config, {
+          onQR: (qr) => {
+            setWaQR(qr);
+          },
+          onPairingCode: (code) => {
+            setWaPairingCode(code);
+          },
+        });
+
+        // Poll for connection
+        const checkInterval = setInterval(() => {
+          if (settled) { clearInterval(checkInterval); return; }
+          if (bridge && bridge.isConnected()) {
+            settled = true;
+            clearInterval(checkInterval);
+            setWaStatus("connected");
+            setTimeout(() => setStep("core-name"), 1000);
+          }
+        }, 1000);
+
+        // Timeout after 2 minutes
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            clearInterval(checkInterval);
+            setWaStatus("error");
+            setWaError("Pairing timed out. Press [s] to skip and pair later.");
+          }
+        }, 120000);
+      } catch (err) {
+        if (!settled) {
+          settled = true;
+          setWaStatus("error");
+          setWaError(String(err));
+        }
+      }
+    }
+
+    startPairing();
+  }, [step]);
+
   const handleProviderSelect = (value: string) => {
     setProvider(value);
     if (value === "claude-code") {
@@ -326,12 +389,36 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   const handleWhatsappChoice = (value: string) => {
     if (value === "yes") {
       setEnableWhatsapp(true);
-      setStep("whatsapp-number");
+      setStep("whatsapp-method");
     } else {
       setEnableWhatsapp(false);
       config.whatsapp = { enabled: false, allowedNumbers: [], notifyOnComplete: false, notifyOnFail: false };
       saveConfig(config);
       setStep("core-name");
+    }
+  };
+
+  const [waPairMethod, setWaPairMethod] = useState<"phone" | "qr">("phone");
+
+  const handleWhatsappMethod = (value: string) => {
+    if (value === "phone") {
+      setWaPairMethod("phone");
+      setStep("whatsapp-number");
+    } else {
+      // QR code method — no phone number needed, skip to pairing
+      setWaPairMethod("qr");
+      config.whatsapp = {
+        enabled: true,
+        allowedNumbers: [],
+        notifyOnComplete: true,
+        notifyOnFail: true,
+      };
+      saveConfig(config);
+      setWaStatus("connecting");
+      setWaQR(null);
+      setWaPairingCode(null);
+      setWaError("");
+      setStep("whatsapp-pair");
     }
   };
 
@@ -346,7 +433,11 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
       notifyOnFail: true,
     };
     saveConfig(config);
-    setStep("core-name");
+    setWaStatus("connecting");
+    setWaQR(null);
+    setWaPairingCode(null);
+    setWaError("");
+    setStep("whatsapp-pair");
   };
 
   const vaultPath = join(config.home, "memory");
@@ -391,6 +482,18 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
   useInput((input, key) => {
     if (step === "ready" && key.return) {
       onComplete();
+    }
+    // WhatsApp pairing: press 's' to skip
+    if (step === "whatsapp-pair" && (input === "s" || input === "r")) {
+      if (input === "s") {
+        setStep("core-name");
+      } else if (waStatus === "error") {
+        setWaStatus("connecting");
+        setWaQR(null);
+        setWaPairingCode(null);
+        setWaError("");
+        setStep("whatsapp-pair");
+      }
     }
     // Error recovery: press 'r' to retry, 'b' to go back to provider selection
     if (input === "r" || input === "b") {
@@ -586,6 +689,7 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         <Box flexDirection="column">
           <Text bold>Enable WhatsApp bridge?</Text>
           <Text dimColor>Control TurboClaw from WhatsApp: create tasks, check status, get notifications.</Text>
+          <Text dimColor>Works with personal chats and groups.</Text>
           <Box marginTop={1} />
           <Select
             options={[
@@ -597,15 +701,75 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
         </Box>
       )}
 
+      {/* WhatsApp pairing method */}
+      {step === "whatsapp-method" && (
+        <Box flexDirection="column">
+          <Text bold>How do you want to pair WhatsApp?</Text>
+          <Box marginTop={1} />
+          <Select
+            options={[
+              { label: "Phone number (pairing code — easiest)", value: "phone" },
+              { label: "QR code (scan from WhatsApp)", value: "qr" },
+            ]}
+            onChange={handleWhatsappMethod}
+          />
+        </Box>
+      )}
+
       {step === "whatsapp-number" && (
         <Box flexDirection="column">
           <Text bold>Enter your phone number (with country code, no + or spaces):</Text>
           <Text dimColor>Example: 14155551234</Text>
+          <Text dimColor>This will be used for pairing and as the allowed sender.</Text>
           <Box marginTop={1} />
           <TextInput
             placeholder="14155551234"
             onSubmit={handlePhoneNumber}
           />
+        </Box>
+      )}
+
+      {/* WhatsApp pairing */}
+      {step === "whatsapp-pair" && (
+        <Box flexDirection="column">
+          {waStatus === "connecting" && (
+            <Box flexDirection="column">
+              <Spinner label="Connecting to WhatsApp..." />
+              <Box marginTop={1} />
+
+              {waPairingCode && (
+                <Box flexDirection="column">
+                  <Text bold color="green">Pairing code: <Text color="cyan">{waPairingCode}</Text></Text>
+                  <Box marginTop={1} />
+                  <Text>Open WhatsApp on your phone:</Text>
+                  <Text dimColor>  Settings → Linked Devices → Link a Device → Link with phone number</Text>
+                  <Text dimColor>  Enter the code above.</Text>
+                </Box>
+              )}
+
+              {waQR && !waPairingCode && (
+                <Box flexDirection="column">
+                  <QRDisplay qr={waQR} />
+                  <Text dimColor>Open WhatsApp → Linked Devices → Link a Device → Scan QR</Text>
+                </Box>
+              )}
+
+              {!waPairingCode && !waQR && (
+                <Text dimColor>Waiting for pairing code or QR code...</Text>
+              )}
+            </Box>
+          )}
+
+          {waStatus === "connected" && (
+            <Text color="green" bold>WhatsApp connected successfully!</Text>
+          )}
+
+          {waStatus === "error" && (
+            <Box flexDirection="column">
+              <Text color="red">WhatsApp pairing failed: {waError}</Text>
+              <Text dimColor>Press [r] to retry or [s] to skip and pair later.</Text>
+            </Box>
+          )}
         </Box>
       )}
 
