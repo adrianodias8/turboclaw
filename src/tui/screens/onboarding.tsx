@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { Select, TextInput, Spinner } from "@inkjs/ui";
-import { existsSync } from "fs";
+import { existsSync, rmSync } from "fs";
 import { join } from "path";
 import type { TurboClawConfig } from "../../config";
 import { saveConfig } from "../../config";
@@ -291,6 +291,12 @@ export function Onboarding({ config, onComplete }: OnboardingProps) {
 
     async function startPairing() {
       try {
+        // Clear stale auth state for fresh pairing
+        const authDir = join(config.home, "whatsapp-auth");
+        if (existsSync(authDir)) {
+          rmSync(authDir, { recursive: true, force: true });
+        }
+
         const { createStore } = await import("../../tracker/store");
         const { Database } = await import("bun:sqlite");
         const db = new Database(join(config.home, "turboclaw.db"));

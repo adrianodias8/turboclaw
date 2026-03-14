@@ -78,21 +78,8 @@ export async function startWhatsAppBridge(
 
     sock.ev.on("creds.update", saveCreds);
 
-    // Request pairing code if using phone number method
-    if (usePairingCode && !state.creds.registered && !isReconnect) {
-      setTimeout(async () => {
-        try {
-          const code = await sock!.requestPairingCode(pairingNumber!);
-          logger.info(`WhatsApp pairing code: ${code}`);
-          logger.info(`Enter this code in WhatsApp > Linked Devices > Link with phone number`);
-          if (opts.onPairingCode) {
-            opts.onPairingCode(code);
-          }
-        } catch (err) {
-          logger.warn("Failed to request pairing code:", err);
-        }
-      }, 3000);
-    }
+    // Track whether pairing code has been requested for this connection attempt
+    let pairingCodeRequested = false;
 
     sock.ev.on("connection.update", (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -104,16 +91,47 @@ export async function startWhatsAppBridge(
         logger.info("WhatsApp QR code generated — scan with your phone");
       }
 
+      // Request pairing code once the connection is open enough to accept requests
+      // Baileys emits connection updates before "open" — we request on the first
+      // update that isn't a close/qr, or after a short delay once socket exists
+      if (usePairingCode && !state.creds.registered && !pairingCodeRequested && !qr && connection !== "close") {
+        pairingCodeRequested = true;
+        // Small delay to let the socket stabilize
+        setTimeout(async () => {
+          try {
+            const code = await sock!.requestPairingCode(pairingNumber!);
+            logger.info(`WhatsApp pairing code: ${code}`);
+            logger.info(`Enter this code in WhatsApp > Linked Devices > Link with phone number`);
+            if (opts.onPairingCode) {
+              opts.onPairingCode(code);
+            }
+          } catch (err) {
+            logger.warn("Failed to request pairing code:", err);
+            // Reset so next reconnect can try again
+            pairingCodeRequested = false;
+          }
+        }, 2000);
+      }
+
       if (connection === "close") {
         connected = false;
         const err = lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
         const statusCode = err?.output?.statusCode;
 
-        // Handle 515 stream error specifically — reconnect immediately
+        // Handle 515 stream error — reconnect immediately
         // This often happens after pairing succeeds but before registration completes
         if (statusCode === 515) {
           logger.info("WhatsApp stream error (515) — reconnecting immediately...");
           connect(true);
+          return;
+        }
+
+        // Handle 428 precondition error — server not ready, retry quickly
+        if (statusCode === 428) {
+          reconnectAttempts++;
+          const delay = Math.min(2000 * reconnectAttempts, 10000);
+          logger.info(`WhatsApp not ready (428), retrying in ${delay / 1000}s (attempt ${reconnectAttempts})...`);
+          setTimeout(() => connect(true), delay);
           return;
         }
 
