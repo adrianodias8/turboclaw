@@ -38,5 +38,5 @@ export const DEFAULT_CONTAINER_CONFIG: ContainerConfig = {
   network: "turboclaw-net",
   memoryLimit: "2g",
   cpuLimit: "2",
-  agentCommand: ["opencode", "run", "--model", "{model}", "--quiet", "{prompt}"],
+  agentCommand: ["opencode", "run", "--model", "{model}", "{prompt}"],
 };
