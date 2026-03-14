@@ -11,6 +11,8 @@ import { maybeCreateTaskMemory } from "../memory/auto-memory";
 import { advanceTask } from "../tracker/pipelines";
 import { sortTasks } from "./strategies";
 import { nextRunAt } from "./cron-parser";
+import { discoverSkills } from "../skills/discovery";
+import { createSkillCache } from "../skills/cache";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
 
@@ -225,6 +227,26 @@ export function startOrchestrator(
       }
     }
 
+    // Auto-discover skills from registries based on task prompt
+    let skillPaths: Array<{ name: string; hostDir: string }> = [];
+    if (config.skills.autoDiscover && agentType !== "codex") {
+      try {
+        const projectRoot = process.cwd();
+        const taskPrompt = task.description ?? task.title;
+        const skillNames = await discoverSkills(taskPrompt, projectRoot, config.skills);
+        if (skillNames.length > 0) {
+          const cache = createSkillCache(projectRoot);
+          skillPaths = skillNames.map((name) => ({
+            name,
+            hostDir: cache.skillDir(name),
+          }));
+          store.addEvent(run.id, "info", `Discovered ${skillNames.length} skills: ${skillNames.join(", ")}`);
+        }
+      } catch (err) {
+        logger.warn(`Skill discovery failed for task ${task.id}:`, err);
+      }
+    }
+
     try {
       const container = await containerManager.spawn({
         taskId: task.id,
@@ -239,6 +261,7 @@ export function startOrchestrator(
         credentialPaths,
         agentCommand,
         agentType,
+        skillPaths,
       });
 
       activeContainers.set(run.id, container.containerId);

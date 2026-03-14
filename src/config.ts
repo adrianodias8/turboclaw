@@ -36,6 +36,11 @@ export interface TurboClawConfig {
     dailyRetentionDays: number;
     weeklyRetentionWeeks: number;
   };
+  skills: {
+    autoDiscover: boolean;
+    maxPerTask: number;
+    registries: ("clawhub" | "n-skills")[];
+  };
   dbPath: string;
 }
 
@@ -64,6 +69,11 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
   memory: {
     dailyRetentionDays: 7,
     weeklyRetentionWeeks: 4,
+  },
+  skills: {
+    autoDiscover: true,
+    maxPerTask: 5,
+    registries: ["clawhub", "n-skills"],
   },
 };
 
@@ -95,6 +105,7 @@ export function loadConfig(): TurboClawConfig {
     selfImprove: { ...DEFAULT_CONFIG.selfImprove, ...(fileConfig.selfImprove as Record<string, unknown> ?? {}) },
     whatsapp: { ...DEFAULT_CONFIG.whatsapp, ...(fileConfig.whatsapp as Record<string, unknown> ?? {}) },
     memory: { ...DEFAULT_CONFIG.memory, ...(fileConfig.memory as Record<string, unknown> ?? {}) },
+    skills: { ...DEFAULT_CONFIG.skills, ...(fileConfig.skills as Record<string, unknown> ?? {}) },
     agent: (fileConfig.agent as TurboClawConfig["agent"]) ?? undefined,
     workspaceRoot: (fileConfig.workspaceRoot as string) ?? undefined,
   } as TurboClawConfig;

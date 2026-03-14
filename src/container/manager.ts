@@ -98,6 +98,21 @@ export function createContainerManager(
         }
       }
 
+      // Mount discovered skills into the container
+      if (opts.skillPaths && opts.skillPaths.length > 0) {
+        if (opts.agentType === "opencode") {
+          // OpenCode reads skills from ~/.config/opencode/skills/<name>/SKILL.md
+          for (const skill of opts.skillPaths) {
+            dockerArgs.push("-v", `${skill.hostDir}:/home/agent/.config/opencode/skills/${skill.name}:ro`);
+          }
+        } else if (opts.agentType === "claude-code") {
+          // Claude Code reads skills from <project>/.claude/skills/<name>/SKILL.md
+          for (const skill of opts.skillPaths) {
+            dockerArgs.push("-v", `${skill.hostDir}:/workspace/.claude/skills/${skill.name}:ro`);
+          }
+        }
+      }
+
       // Environment variables (agent-specific env vars like OPENCODE_BROWSER_BACKEND
       // are set via opts.envVars by the orchestrator, not hardcoded here)
       dockerArgs.push(

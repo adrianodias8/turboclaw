@@ -26,6 +26,9 @@ RUN mkdir -p /home/agent/.local/state /home/agent/.local/share && chown -R agent
 # Copy default opencode config (credentials configured at runtime via env vars)
 COPY --chown=agent opencode.json /home/agent/.config/opencode/opencode.json
 
+# Copy seed skills
+COPY --chown=agent skills/ /home/agent/.config/opencode/skills/
+
 USER agent
 WORKDIR /workspace
 
