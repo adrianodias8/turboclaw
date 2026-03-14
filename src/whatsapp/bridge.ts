@@ -8,9 +8,15 @@ import { parseTimeReference } from "./time-parser";
 import { join } from "path";
 import { mkdirSync } from "fs";
 
+export interface WhatsAppGroup {
+  id: string;
+  subject: string;
+}
+
 export interface WhatsAppBridge {
   stop(): void;
   isConnected(): boolean;
+  getJoinedGroups(): Promise<WhatsAppGroup[]>;
 }
 
 export interface WhatsAppBridgeOptions {
@@ -38,7 +44,8 @@ export async function startWhatsAppBridge(
     Browsers,
   } = baileys;
 
-  const waConfig = config.whatsapp;
+  // Read whatsapp config live — settings may change at runtime via TUI
+  const getWaConfig = () => config.whatsapp;
   const authDir = join(config.home, "whatsapp-auth");
   mkdirSync(authDir, { recursive: true });
 
@@ -53,7 +60,7 @@ export async function startWhatsAppBridge(
   const whatsappTaskJids = new Map<string, string>();
 
   // Use pairing code method if we have a phone number in allowedNumbers
-  const pairingNumber = waConfig.allowedNumbers[0] ?? null;
+  const pairingNumber = getWaConfig().allowedNumbers[0] ?? null;
   const usePairingCode = !!pairingNumber;
 
   async function connect(isReconnect = false) {
@@ -161,8 +168,8 @@ export async function startWhatsAppBridge(
 
         if (!notifier) {
           notifier = startNotifier(store, sendMessage, {
-            notifyOnComplete: waConfig.notifyOnComplete,
-            notifyOnFail: waConfig.notifyOnFail,
+            notifyOnComplete: getWaConfig().notifyOnComplete,
+            notifyOnFail: getWaConfig().notifyOnFail,
             getTaskJid: (taskId) => whatsappTaskJids.get(taskId),
           });
         }
@@ -180,15 +187,23 @@ export async function startWhatsAppBridge(
         const jid = msg.key.remoteJid;
         if (!jid || jid === "status@broadcast") continue;
 
-        const number = jid.split("@")[0] ?? "";
-        if (waConfig.allowedNumbers.length > 0 && !waConfig.allowedNumbers.includes(number)) {
-          continue;
+        const isGroup = jid.endsWith("@g.us");
+        const groupId = isGroup ? jid.split("@")[0] ?? "" : "";
+        const number = isGroup ? "" : jid.split("@")[0] ?? "";
+
+        if (isGroup) {
+          // Only accept messages from explicitly allowed groups
+          if (!getWaConfig().allowedGroups.includes(groupId)) continue;
+        } else {
+          // Individual chat: check allowedNumbers
+          if (getWaConfig().allowedNumbers.length > 0 && !getWaConfig().allowedNumbers.includes(number)) continue;
         }
 
         const text = msg.message?.conversation ?? msg.message?.extendedTextMessage?.text;
         if (!text) continue;
 
-        logger.info(`WhatsApp message from ${number}: ${text}`);
+        const sender = isGroup ? `group:${groupId}` : number;
+        logger.info(`WhatsApp message from ${sender}: ${text}`);
 
         const command = parseMessage(text);
         let reply = "";
@@ -322,7 +337,7 @@ export async function startWhatsAppBridge(
       }
     } else {
       // Broadcast to all allowed numbers
-      for (const num of waConfig.allowedNumbers) {
+      for (const num of getWaConfig().allowedNumbers) {
         const jid = `${num}@s.whatsapp.net`;
         try {
           const sent = await sock.sendMessage(jid, { text });
@@ -345,6 +360,19 @@ export async function startWhatsAppBridge(
     },
     isConnected() {
       return connected;
+    },
+    async getJoinedGroups(): Promise<WhatsAppGroup[]> {
+      if (!sock || !connected) return [];
+      try {
+        const groups = await sock.groupFetchAllParticipating();
+        return Object.values(groups).map((g) => ({
+          id: g.id.split("@")[0] ?? g.id,
+          subject: g.subject,
+        }));
+      } catch (err) {
+        logger.warn("Failed to fetch WhatsApp groups:", err);
+        return [];
+      }
     },
   };
 }

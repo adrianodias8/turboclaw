@@ -28,6 +28,7 @@ export interface TurboClawConfig {
   whatsapp: {
     enabled: boolean;
     allowedNumbers: string[];
+    allowedGroups: string[];
     notifyOnComplete: boolean;
     notifyOnFail: boolean;
   };
@@ -56,6 +57,7 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
   whatsapp: {
     enabled: false,
     allowedNumbers: [],
+    allowedGroups: [],
     notifyOnComplete: false,
     notifyOnFail: false,
   },

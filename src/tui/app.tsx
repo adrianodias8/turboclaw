@@ -94,7 +94,7 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
           <Alerts store={store} />
         )}
         {screen === "settings" && !taskDetailId && (
-          <Settings config={config} updateConfig={updateConfig} />
+          <Settings config={config} updateConfig={updateConfig} whatsappBridge={whatsappBridge ?? null} />
         )}
         {screen === "logs" && !taskDetailId && (
           <Logs store={store} />

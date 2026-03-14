@@ -1,6 +1,7 @@
 export interface WhatsAppConfig {
   enabled: boolean;
   allowedNumbers: string[];
+  allowedGroups: string[];
   notifyOnComplete: boolean;
   notifyOnFail: boolean;
 }
