@@ -156,6 +156,7 @@ export async function startWhatsAppBridge(
         connected = true;
         reconnectAttempts = 0;
         alertedThisSession = false;
+        store.acknowledgeAlertsByKind("whatsapp_disconnect");
         logger.info("WhatsApp connected successfully");
 
         if (!notifier) {
