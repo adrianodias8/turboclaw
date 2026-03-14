@@ -61,6 +61,9 @@ export function resolveCredentialPaths(providerType: string): string[] {
       if (existsSync(opencodeDir)) paths.push(opencodeDir);
       const opencodeData = join(HOME, ".local", "share", "opencode");
       if (existsSync(opencodeData)) paths.push(opencodeData);
+      // State dir holds model.json (last-used model/provider selection)
+      const opencodeState = join(HOME, ".local", "state", "opencode");
+      if (existsSync(opencodeState)) paths.push(opencodeState);
       break;
     }
   }

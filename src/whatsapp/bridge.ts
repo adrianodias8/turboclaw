@@ -34,6 +34,8 @@ export async function startWhatsAppBridge(
   config: TurboClawConfig,
   opts: WhatsAppBridgeOptions = {}
 ): Promise<WhatsAppBridge> {
+  const typingPulseMs = 10000;
+  const typingRefreshMs = 3000;
   const baileys = await import("@whiskeysockets/baileys");
   const makeWASocket = baileys.default ?? baileys.makeWASocket;
   const {
@@ -58,6 +60,7 @@ export async function startWhatsAppBridge(
   const sentMessageIds = new Set<string>();
   // Track which tasks came from WhatsApp and which chat to reply to
   const whatsappTaskJids = new Map<string, string>();
+  const activeTypingByJid = new Map<string, ReturnType<typeof setInterval>>();
 
   // Use pairing code method if we have a phone number in allowedNumbers
   const pairingNumber = getWaConfig().allowedNumbers[0] ?? null;
@@ -199,7 +202,12 @@ export async function startWhatsAppBridge(
           // or self-chat (message sent by the account owner to themselves).
           // If allowedNumbers is empty (QR pairing), only self-chat is accepted
           // to prevent rogue processing of messages from random contacts.
-          const isSelfChat = msg.key.fromMe === true;
+          //
+          // Self-chat = remoteJid matches the account owner's JID.
+          // Note: fromMe alone is NOT sufficient — it's true for every outgoing
+          // message to ANY contact, not just self-chat.
+          const ownNumber = sock?.user?.id?.split(":")[0] ?? sock?.user?.id?.split("@")[0] ?? "";
+          const isSelfChat = !!ownNumber && number === ownNumber;
           if (isSelfChat) {
             // Self-chat is always allowed — it's the account owner
           } else if (getWaConfig().allowedNumbers.length === 0) {
@@ -219,6 +227,7 @@ export async function startWhatsAppBridge(
         const command = parseMessage(text);
         let reply = "";
         let taskIdForChat: string | null = null;
+        let shouldSendTypingPresence = false;
 
         switch (command.type) {
           case "prompt": {
@@ -257,7 +266,7 @@ export async function startWhatsAppBridge(
             // Track which tasks came from WhatsApp so we can reply with output
             whatsappTaskJids.set(task.id, jid);
             taskIdForChat = task.id;
-            reply = `On it...`;
+            shouldSendTypingPresence = true;
             break;
           }
           case "task": {
@@ -276,7 +285,7 @@ export async function startWhatsAppBridge(
             store.updateTaskStatus(task.id, "queued");
             whatsappTaskJids.set(task.id, jid);
             taskIdForChat = task.id;
-            reply = `On it...`;
+            shouldSendTypingPresence = true;
             break;
           }
           case "status": {
@@ -323,6 +332,10 @@ export async function startWhatsAppBridge(
         // Record user message in chat history
         store.addChatMessage(jid, "user", text, taskIdForChat);
 
+        if (shouldSendTypingPresence) {
+          await startTypingPresence(jid);
+        }
+
         if (reply) {
           try {
             const sent = await sock!.sendMessage(jid, { text: reply });
@@ -358,6 +371,7 @@ export async function startWhatsAppBridge(
     } else {
       // Send to specific chat (reply to the conversation that triggered the task)
       try {
+        await stopTypingPresence(targetJid);
         const sent = await sock.sendMessage(targetJid, { text });
         if (sent?.key?.id) sentMessageIds.add(sent.key.id);
       } catch (err) {
@@ -366,11 +380,74 @@ export async function startWhatsAppBridge(
     }
   }
 
+  async function startTypingPresence(targetJid: string): Promise<void> {
+    if (!sock || !connected) return;
+    if (activeTypingByJid.has(targetJid)) return;
+
+    try {
+      await sock.sendPresenceUpdate("available");
+      await sock.sendPresenceUpdate("composing", targetJid);
+      await sock.sendPresenceUpdate("composing");
+    } catch (err) {
+      logger.warn(`Failed to send typing presence to ${targetJid}:`, err);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (!sock || !connected) return;
+      void Promise.all([
+        sock.sendPresenceUpdate("composing", targetJid),
+        sock.sendPresenceUpdate("composing"),
+      ]).catch((err) => {
+        logger.warn(`Failed to refresh typing presence for ${targetJid}:`, err);
+      });
+    }, typingRefreshMs);
+    activeTypingByJid.set(targetJid, interval);
+
+    await new Promise((resolve) => setTimeout(resolve, typingPulseMs));
+
+    if (activeTypingByJid.has(targetJid)) {
+      const timer = activeTypingByJid.get(targetJid);
+      if (timer) clearInterval(timer);
+      activeTypingByJid.delete(targetJid);
+    }
+
+    if (!sock || !connected) return;
+    try {
+      await sock.sendPresenceUpdate("available");
+      await sock.sendPresenceUpdate("paused", targetJid);
+      await sock.sendPresenceUpdate("paused");
+    } catch (err) {
+      logger.warn(`Failed to clear typing presence for ${targetJid}:`, err);
+    }
+  }
+
+  async function stopTypingPresence(targetJid: string): Promise<void> {
+    const timer = activeTypingByJid.get(targetJid);
+    if (timer) {
+      clearInterval(timer);
+      activeTypingByJid.delete(targetJid);
+    }
+
+    if (!sock || !connected) return;
+    try {
+      await sock.sendPresenceUpdate("available");
+      await sock.sendPresenceUpdate("paused", targetJid);
+      await sock.sendPresenceUpdate("paused");
+    } catch (err) {
+      logger.warn(`Failed to clear typing presence for ${targetJid}:`, err);
+    }
+  }
+
   await connect();
 
   return {
     stop() {
       shouldReconnect = false;
+      for (const timer of activeTypingByJid.values()) {
+        clearInterval(timer);
+      }
+      activeTypingByJid.clear();
       notifier?.stop();
       sock?.end(undefined);
       connected = false;
