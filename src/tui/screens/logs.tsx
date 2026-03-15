@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Box, Text } from "ink";
+import React, { useState, useEffect, useMemo } from "react";
+import { Box, Text, useInput, useStdout } from "ink";
 import type { Store } from "../../tracker/store";
 import type { Event } from "../../tracker/types";
 
@@ -18,6 +18,9 @@ const KIND_COLORS: Record<string, string> = {
 
 export function Logs({ store }: LogsProps) {
   const [events, setEvents] = useState<(Event & { _taskTitle?: string })[]>([]);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [followTail, setFollowTail] = useState(true);
+  const { stdout } = useStdout();
 
   useEffect(() => {
     const refresh = () => {
@@ -35,7 +38,7 @@ export function Logs({ store }: LogsProps) {
       }
 
       allEvents.sort((a, b) => a.id - b.id);
-      setEvents(allEvents.slice(-30));
+      setEvents(allEvents.slice(-200));
     };
 
     refresh();
@@ -43,31 +46,98 @@ export function Logs({ store }: LogsProps) {
     return () => clearInterval(interval);
   }, [store]);
 
+  const columns = stdout.columns ?? 80;
+  const rows = stdout.rows ?? 24;
+  const contentWidth = Math.max(24, columns - 4);
+  const reservedLines = 8;
+  const visibleCount = Math.max(4, rows - reservedLines);
+
+  const lines = useMemo(() => {
+    const kindWidth = 10;
+    const titleWidth = 20;
+    const payloadWidth = Math.max(8, contentWidth - kindWidth - titleWidth - 2);
+
+    return events.map((event) => {
+      const kind = `[${event.kind}]`.padEnd(kindWidth, " ");
+      const title = truncate((event._taskTitle ?? "-").replace(/\s+/g, " "), titleWidth - 1).padEnd(titleWidth, " ");
+      const payload = truncate(event.payload.replace(/\s+/g, " "), payloadWidth);
+      return `${kind} ${title} ${payload}`;
+    });
+  }, [contentWidth, events]);
+
+  const maxScrollTop = Math.max(0, lines.length - visibleCount);
+
+  useEffect(() => {
+    if (followTail) {
+      setScrollTop(maxScrollTop);
+      return;
+    }
+    setScrollTop((current) => Math.min(current, maxScrollTop));
+  }, [maxScrollTop, followTail]);
+
+  useInput((input, key) => {
+    if (key.upArrow) {
+      setFollowTail(false);
+      setScrollTop((current) => Math.max(0, current - 1));
+      return;
+    }
+
+    if (key.downArrow) {
+      setScrollTop((current) => {
+        const next = Math.min(maxScrollTop, current + 1);
+        if (next === maxScrollTop) {
+          setFollowTail(true);
+        }
+        return next;
+      });
+      return;
+    }
+
+    if (input === "f") {
+      setFollowTail(true);
+      setScrollTop(maxScrollTop);
+    }
+  });
+
+  const visibleLines = lines.slice(scrollTop, scrollTop + visibleCount);
+
   return (
     <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
+      <Box marginBottom={1} gap={2}>
         <Text bold color="cyan">Live Event Stream</Text>
+        <Text dimColor>[Up/Down] scroll  [f] follow live</Text>
       </Box>
 
       {events.length === 0 ? (
         <Text dimColor>No events yet. Events appear when tasks run.</Text>
       ) : (
         <Box flexDirection="column">
-          {events.map((e) => (
-            <Box key={`${e.run_id}-${e.id}`} gap={1}>
-              <Box width={8}>
-                <Text color={KIND_COLORS[e.kind] ?? "white"}>[{e.kind}]</Text>
-              </Box>
-              {e._taskTitle && (
-                <Box width={20}>
-                  <Text dimColor>{e._taskTitle.slice(0, 18)}</Text>
-                </Box>
-              )}
-              <Text>{e.payload}</Text>
-            </Box>
-          ))}
+          {visibleLines.map((line, index) => {
+            const event = events[scrollTop + index];
+            if (!event) {
+              return null;
+            }
+            return (
+              <Text key={`${event.run_id}-${event.id}`} color={KIND_COLORS[event.kind] ?? "white"}>
+                {line}
+              </Text>
+            );
+          })}
+          <Text dimColor>
+            {followTail ? "Following latest events" : `Viewing ${scrollTop + 1}-${Math.min(lines.length, scrollTop + visibleCount)} of ${lines.length}`}
+          </Text>
         </Box>
       )}
     </Box>
   );
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) {
+    return value;
+  }
+  if (max <= 3) {
+    return value.slice(0, max);
+  }
+  return `${value.slice(0, max - 3)}...`;
 }

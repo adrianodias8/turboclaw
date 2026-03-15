@@ -56,10 +56,10 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
         "1": "dashboard",
         "2": "tasks",
         "3": "crons",
-        "4": "alerts",
-        "5": "logs",
-        "6": "settings",
-        "7": "memory",
+        "4": "memory",
+        "5": "alerts",
+        "6": "logs",
+        "7": "settings",
       };
       if (screenMap[input]) {
         navigate(screenMap[input]);
