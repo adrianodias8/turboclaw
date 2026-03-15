@@ -56,7 +56,7 @@ Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`
 - The TUI must work in both full terminal and narrow (80-col) modes
 
 ### WhatsApp Bridge (`src/whatsapp/`)
-Sidecar process using Baileys for WhatsApp Web. Parses commands (`/task`, `/status`, `/list`, `/cancel`, `/help`), executes against the store, sends notifications on task completion/failure. Decoupled from orchestrator — if it crashes, TurboClaw keeps running.
+Sidecar process using Baileys for WhatsApp Web. Parses commands (`/task`, `/status`, `/list`, `/cancel`, `/restart`, `/help`), executes against the store, sends notifications on task completion/failure. Decoupled from orchestrator — if it crashes, TurboClaw keeps running.
 
 **Entry point routing in `index.ts`:**
 ```typescript
@@ -97,7 +97,7 @@ src/
       logs.tsx      — live event stream viewer
       memory.tsx    — three-tier memory management (core/daily/weekly sub-tabs)
     components/
-      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Alerts [5] Logs [6] Settings [7] Memory
+      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Memory [5] Alerts [6] Logs [7] Settings
       status-bar.tsx — bottom bar: queue, workers, uptime, alert badge, provider, WA status
       task-row.tsx  — single row in task list
       event-stream.tsx — scrollable log
@@ -126,13 +126,21 @@ src/
     builder.ts      — docker build for worker image
     agent-commands.ts — resolves agent type to CLI command, env vars, credential paths
     credentials.ts  — OAuth/subscription credential path resolution
-    self-improve.ts — self-improve mode validation and setup
+    self-improve.ts — self-improve mode validation, env setup, preamble
+    completion.ts   — completion protocol preamble (injected into every prompt)
+    utils.ts        — pure utility functions (remapHomePath, rewriteLocalhostUrls)
     types.ts        — ContainerConfig, SpawnOptions
 
   gateway/
-    server.ts       — Bun.serve() setup
+    server.ts       — Bun.serve() setup, accepts restart callback
     routes.ts       — route handlers (functions, not classes)
     types.ts        — request/response shapes
+
+  skills/
+    discovery.ts    — auto-discover skills from registries based on task prompt
+    registry.ts     — ClawhHub + n-skills registry clients
+    cache.ts        — local filesystem skill cache
+    types.ts        — SkillManifest, RegistryConfig, DiscoveryResult
 
   memory/
     vault.ts        — open vault, list notes, read/write markdown files (dirs: inbox, notes, projects, tasks, agents, templates, core, weekly)
@@ -147,8 +155,9 @@ src/
 
   whatsapp/
     bridge.ts       — main WhatsApp bridge (Baileys + reconnect + QR callback + group support)
-    parser.ts       — message → command parser (/task, /status, /list, /cancel, /help)
-    notifier.ts     — polls for completed/failed tasks, sends WhatsApp messages
+    parser.ts       — message → command parser (/task, /status, /list, /cancel, /restart, /help)
+    notifier.ts     — polls for completed/failed tasks, sends WhatsApp messages, retries on reconnect
+    time-parser.ts  — parses time references ("in 5 minutes", "at 14:30") for scheduled tasks
     types.ts        — WhatsAppConfig (includes allowedGroups), ParsedCommand
 ```
 
@@ -234,13 +243,13 @@ Alerts surface in the TUI Alerts screen (color-coded by kind) and can be acknowl
 
 ## Skills System
 
-Two-tier approach: **seed skills** baked into the Docker image + **runtime discovery** where agents fetch skills on-the-fly during task execution.
+Two-tier approach: **seed skills** baked into the Docker image + **auto-discovery** at task dispatch time.
 
 ### Tier 1: Seed Skills (Docker build time)
-A base set from `config/skills-manifest.json` is pre-installed via `scripts/fetch-skills.ts`. Avoids cold-start latency.
+A base set from `docker/skills-manifest.json` is baked into the worker image. Includes `turboclaw-dev`, `git-workflow`, `task-completion`, `web-research`. Avoids cold-start latency.
 
-### Tier 2: Runtime Discovery (during task execution)
-The container includes `openskills` and `opencode-skillful` CLIs. Agents can search/install from marketplaces at runtime.
+### Tier 2: Auto-Discovery (at task dispatch)
+The orchestrator runs `src/skills/discovery.ts` before spawning a container. It extracts keywords from the task prompt, queries ClawhHub and n-skills registries, caches results locally, and mounts matching skills into the container. Controlled via `config.skills` (`autoDiscover`, `maxPerTask`, `registries`).
 
 ### What NOT to do with skills
 - **Do NOT create a custom skills framework.** Use OpenCode's native skill system.
@@ -249,6 +258,15 @@ The container includes `openskills` and `opencode-skillful` CLIs. Agents can sea
 ## Self-Improvement Mode
 
 TurboClaw can mount its own source code into worker containers so agents can improve the project itself. Enabled via config or TUI toggle. Always creates a feature branch, never touches main.
+
+### Auto-Restart
+
+After a self-improve task completes, the orchestrator compares the current `git HEAD` against what it was at boot time. If HEAD changed (new commits on any branch), TurboClaw automatically restarts with exit code 75. The wrapper script `scripts/run.sh` detects exit 75 and re-execs bun, picking up the new code.
+
+Restart can also be triggered manually:
+- **WhatsApp:** send `/restart`
+- **API:** `POST /restart`
+- **TUI:** Ctrl+C and relaunch via `scripts/run.sh`
 
 ## Memory System — Three-Tier Zettelkasten (`src/memory/`)
 
@@ -274,7 +292,7 @@ TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/me
 ```
 
 ### Memory Lifecycle
-- **Core notes** are created during onboarding (name, role, context, preferences + 4 base agent behavior notes) or via TUI Memory screen `[7]`. Core notes are always injected and excluded from search-based context to prevent duplication.
+- **Core notes** are created during onboarding (name, role, context, preferences + 4 base agent behavior notes) or via TUI Memory screen `[4]`. Core notes are always injected and excluded from search-based context to prevent duplication.
 - **Daily notes** are auto-generated when tasks complete, tagged with `daily-YYYY-MM-DD`. Unhelpful responses (refusals, "done", "I don't know") are filtered out and not saved.
 - **Weekly summaries** are compiled by the librarian from the previous week's daily notes
 - **Pruning** runs on the librarian interval: daily notes older than `dailyRetentionDays`, weekly notes older than `weeklyRetentionWeeks * 7` days
@@ -294,12 +312,14 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   selfImprove: { enabled: false },
   provider: { type: "anthropic", apiKey?: "...", baseUrl?: "...", model?: "..." } | null,
   agent: "opencode" | "claude-code" | "codex",  // optional, defaults to "opencode"
+  workspaceRoot: "/path/to/project",  // optional, defaults to cwd
   whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
+  skills: { autoDiscover: true, maxPerTask: 5, registries: ["clawhub", "n-skills"] },
 }
 ```
 
-Env var overrides for memory: `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS`, `TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS`.
+Env var overrides: `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS`, `TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS`, `TURBOCLAW_WORKSPACE_ROOT`.
 
 ### Provider Types
 
@@ -319,6 +339,8 @@ bun install                              # Install dependencies
 bun run src/index.ts                     # Launch TUI (default)
 bun run src/index.ts setup              # Onboarding wizard
 bun run src/index.ts --headless         # Headless mode (API + orchestrator)
+./scripts/run.sh                         # Launch with auto-restart on self-improve
+./scripts/run.sh --headless             # Headless with auto-restart
 bun test                                 # Run all tests
 bun run scripts/build-worker.ts         # Build worker Docker image
 bun run src/index.ts task create --title "Fix the login bug" --role coder
@@ -341,6 +363,7 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 | GET | /runs/:id/events | — | SSE stream of run events |
 | GET | /artifacts?taskId=&runId= | — | List artifacts |
 | GET | /status | — | Queue depth, active workers |
+| POST | /restart | — | Gracefully restart TurboClaw (exit 75) |
 
 ## What NOT to Build
 
@@ -357,7 +380,7 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 ## Testing Strategy
 
 ```bash
-bun test                              # all tests (152 passing across 15 files)
+bun test                              # all tests (200 passing across 18 files)
 bun test tests/tracker.test.ts        # tracker CRUD
 bun test tests/crons.test.ts          # cron CRUD
 bun test tests/alerts.test.ts         # alert CRUD
@@ -370,6 +393,12 @@ bun test tests/self-improve.test.ts   # self-improve validation
 bun test tests/orchestrator.test.ts   # scheduling strategies
 bun test tests/gateway.test.ts        # API routes
 bun test tests/container.test.ts      # container manager
+bun test tests/agent-commands.test.ts # agent command resolution
+bun test tests/auto-memory.test.ts    # auto-capture task output
+bun test tests/chat-history.test.ts   # WhatsApp chat history
+bun test tests/container-utils.test.ts # container utility functions
+bun test tests/skills.test.ts         # skill discovery + cache
+bun test tests/time-parser.test.ts    # time reference parsing
 ```
 
 ## Deployment Target

@@ -166,6 +166,9 @@ curl 'http://localhost:7800/artifacts?taskId=<task-id>'
 curl -X POST http://localhost:7800/pipelines \
   -H 'Content-Type: application/json' \
   -d '{"name": "deploy", "stages": ["code", "review", "deploy"]}'
+
+# Restart TurboClaw (graceful shutdown + re-exec)
+curl -X POST http://localhost:7800/restart
 ```
 
 ## CLI Commands
@@ -174,6 +177,8 @@ curl -X POST http://localhost:7800/pipelines \
 bun run src/index.ts                    # Launch TUI
 bun run src/index.ts --headless         # API + orchestrator, no TUI
 bun run src/index.ts setup              # Onboarding wizard
+./scripts/run.sh                         # Launch with auto-restart on self-improve
+./scripts/run.sh --headless             # Headless with auto-restart
 bun run src/index.ts task create --title "Fix bug" --role coder
 bun test                                 # Run all tests
 bun test tests/tracker.test.ts           # Run specific test
@@ -204,10 +209,13 @@ src/
     manager.ts          — docker run/kill/logs/cleanup
     agent-commands.ts   — resolves agent type → CLI command
     credentials.ts      — credential path resolution
-    self-improve.ts     — self-improve mode validation
+    self-improve.ts     — self-improve mode validation, env setup, preamble
+    completion.ts       — completion protocol preamble (injected into every prompt)
+    utils.ts            — pure utility functions (remapHomePath, rewriteLocalhostUrls)
+    types.ts            — ContainerConfig, SpawnOptions
 
   gateway/
-    server.ts           — Bun.serve() setup
+    server.ts           — Bun.serve() setup, accepts restart callback
     routes.ts           — route handlers (functions, not classes)
 
   memory/
@@ -219,10 +227,12 @@ src/
     discovery.ts        — auto-discover skills from registries
     registry.ts         — ClawhHub + n-skills registry clients
     cache.ts            — local filesystem skill cache
+    types.ts            — SkillManifest, RegistryConfig, DiscoveryResult
 
   whatsapp/
     bridge.ts           — WhatsApp Web via Baileys
-    parser.ts           — command parser (/task, /status, /list, etc.)
+    parser.ts           — command parser (/task, /status, /list, /restart, etc.)
+    time-parser.ts      — parses time references for scheduled tasks
 
   tui/
     app.tsx             — root Ink component, screen router
@@ -252,7 +262,7 @@ Single file: `~/.turboclaw/config.json`
   provider: { type: "anthropic", apiKey: "...", model: "..." } | null,
   agent: "opencode" | "claude-code" | "codex",
   workspaceRoot: "/path/to/project",
-  whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [] },
+  whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
   skills: { autoDiscover: true, maxPerTask: 5, registries: ["clawhub", "n-skills"] }
 }
@@ -279,16 +289,25 @@ Vault at `~/.turboclaw/memory/`, Obsidian-compatible markdown files.
 ## Testing
 
 ```bash
-bun test                              # all tests
+bun test                              # all tests (200 across 18 files)
 bun test tests/tracker.test.ts        # tracker CRUD
 bun test tests/crons.test.ts          # cron CRUD + scheduling
+bun test tests/alerts.test.ts         # alert CRUD
 bun test tests/cron-parser.test.ts    # cron expression parsing
 bun test tests/pipelines.test.ts      # pipeline stage advancement
 bun test tests/memory.test.ts         # memory vault operations
+bun test tests/memory-tiers.test.ts   # core/daily/weekly memory tiers
+bun test tests/credentials.test.ts    # credential path resolution
+bun test tests/self-improve.test.ts   # self-improve validation
 bun test tests/orchestrator.test.ts   # scheduling strategies
 bun test tests/gateway.test.ts        # API routes
 bun test tests/container.test.ts      # container manager
+bun test tests/agent-commands.test.ts # agent command resolution
+bun test tests/auto-memory.test.ts    # auto-capture task output
+bun test tests/chat-history.test.ts   # WhatsApp chat history
+bun test tests/container-utils.test.ts # container utility functions
 bun test tests/skills.test.ts         # skill discovery + cache
+bun test tests/time-parser.test.ts    # time reference parsing
 ```
 
 ## Common Development Tasks
@@ -338,8 +357,8 @@ After modifying TurboClaw's source in self-improve mode, the host process still 
 3. **Exit normally** — TurboClaw auto-detects your commits and restarts itself
 
 **What happens automatically after you exit:**
-- The orchestrator checks your branch for new commits vs main
-- If commits are found, it drains active containers and exits with code 75
+- The orchestrator compares current `git HEAD` against what it was at boot time
+- If HEAD changed (new commits on any branch), it drains active containers and exits with code 75
 - The wrapper script (`scripts/run.sh`) sees exit 75 and re-execs bun
 - TurboClaw restarts with your new code
 
