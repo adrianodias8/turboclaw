@@ -56,6 +56,7 @@ export interface Store {
   // Leases
   releaseLease(leaseId: string): void;
   getActiveLease(taskId: string): Lease | null;
+  extendLease(leaseId: string, additionalSec: number): void;
 
   // Gates
   createGate(pipelineId: string, fromStage: string, toStage: string): Gate;
@@ -136,9 +137,9 @@ export function createStore(db: Database): Store {
       "SELECT * FROM pipelines ORDER BY created_at DESC"
     ),
 
-    insertTask: db.prepare<Task, [string, string | null, string | null, string, string | null, string, number, number, string | null]>(
-      `INSERT INTO tasks (id, pipeline_id, stage, title, description, agent_role, priority, max_retries, reply_jid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    insertTask: db.prepare<Task, [string, string | null, string | null, string, string | null, string, number, number, string | null, string | null, string | null]>(
+      `INSERT INTO tasks (id, pipeline_id, stage, title, description, agent_role, priority, max_retries, reply_jid, agent_override, model_override)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
     ),
     getTask: db.prepare<Task, [string]>(
       "SELECT * FROM tasks WHERE id = ?"
@@ -194,6 +195,9 @@ export function createStore(db: Database): Store {
     ),
     getActiveLease: db.prepare<Lease, [string]>(
       "SELECT * FROM leases WHERE task_id = ? AND released = 0 ORDER BY expires_at DESC LIMIT 1"
+    ),
+    extendLease: db.prepare<unknown, [number, string]>(
+      "UPDATE leases SET expires_at = expires_at + ? WHERE id = ? AND released = 0"
     ),
 
     insertGate: db.prepare<Gate, [string, string, string]>(
@@ -332,7 +336,9 @@ export function createStore(db: Database): Store {
         input.agentRole ?? "coder",
         input.priority ?? 0,
         input.maxRetries ?? 3,
-        input.replyJid ?? null
+        input.replyJid ?? null,
+        input.agentOverride ?? null,
+        input.modelOverride ?? null
       )!;
     },
 
@@ -447,6 +453,10 @@ export function createStore(db: Database): Store {
 
     getActiveLease(taskId) {
       return stmts.getActiveLease.get(taskId) ?? null;
+    },
+
+    extendLease(leaseId, additionalSec) {
+      stmts.extendLease.run(additionalSec, leaseId);
     },
 
     createGate(pipelineId, fromStage, toStage) {

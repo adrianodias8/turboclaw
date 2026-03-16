@@ -7,10 +7,12 @@ import { completionProtocol } from "../container/completion";
 import { resolveCredentialPaths } from "../container/credentials";
 import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths, resolveOpenCodeModel } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
-import { buildContext, buildCoreContext } from "../memory/context";
+import { buildContext, buildCoreContext, buildRulesContext, buildRoleSkillContext, detectLanguages } from "../memory/context";
 import { maybeCreateTaskMemory } from "../memory/auto-memory";
+import { buildInstinctContext, extractInstincts, saveInstinct, listInstincts } from "../memory/instincts";
 import { advanceTask } from "../tracker/pipelines";
-import { sortTasks } from "./strategies";
+import { scanForSecrets, sanitizeSecrets } from "../container/security";
+import { sortTasks, resolveAgentForTask } from "./strategies";
 import { nextRunAt } from "./cron-parser";
 import { discoverSkills } from "../skills/discovery";
 import { createSkillCache } from "../skills/cache";
@@ -158,9 +160,12 @@ export function startOrchestrator(
     }
 
     const memoryVaultPath = join(config.home, "memory");
+    const projectRoot = process.cwd();
+    const skillsDir = join(projectRoot, "docker", "skills");
+    const rulesDir = join(projectRoot, "docker", "rules");
 
-    // Build prompt with memory context and chat history
-    // Injection order (outermost first): core → search-based → chat history → prompt
+    // Build prompt — injection order (outermost first):
+    // completion → coreMemory → rules → roleSkill → searchFirst → instincts → searchMemory → selfImprove → chatHistory → task
     let prompt = task.description ?? task.title;
 
     if (task.agent_role === "self-improve") {
@@ -173,9 +178,6 @@ export function startOrchestrator(
       const previous = history
         .filter(m => m.task_id !== task.id)
         .filter(m => {
-          // Defense-in-depth: drop noisy assistant messages that shouldn't
-          // have been stored (e.g. "Done. (TASKID)", failure notifications,
-          // raw JSON error payloads)
           if (m.role !== "assistant") return true;
           const c = m.content.trim();
           if (/^Done\.\s*\(/.test(c)) return false;
@@ -191,10 +193,37 @@ export function startOrchestrator(
       }
     }
 
+    // Matched instincts (learned patterns from previous tasks)
+    const instinctContext = buildInstinctContext(memoryVaultPath, task.description ?? task.title);
+    if (instinctContext) {
+      prompt = `${instinctContext}\n\n---\n\n${prompt}`;
+    }
+
     // Search-based memory (daily/weekly notes matched by keywords)
     const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
     if (memoryContext) {
       prompt = `${memoryContext}\n\n---\n\n${prompt}`;
+    }
+
+    // Search-first principle (for coder/planner roles)
+    if (["coder", "planner"].includes(task.agent_role)) {
+      const searchFirstContext = buildRoleSkillContext(skillsDir, "search-first");
+      if (searchFirstContext) {
+        prompt = `${searchFirstContext}\n\n---\n\n${prompt}`;
+      }
+    }
+
+    // Role-specific skill (e.g. planner, code-reviewer, security-reviewer)
+    const roleSkillContext = buildRoleSkillContext(skillsDir, task.agent_role);
+    if (roleSkillContext) {
+      prompt = `${roleSkillContext}\n\n---\n\n${prompt}`;
+    }
+
+    // Coding rules (common + language-specific)
+    const languages = detectLanguages(workspacePath);
+    const rulesContext = buildRulesContext(rulesDir, languages);
+    if (rulesContext) {
+      prompt = `${rulesContext}\n\n---\n\n${prompt}`;
     }
 
     // Core memory (always injected, outermost layer)
@@ -207,12 +236,24 @@ export function startOrchestrator(
     const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
     prompt = `${completionProtocol(task.id, apiUrl)}${prompt}`;
 
-    // Resolve agent CLI command based on configured agent type
-    let agentCommand = buildAgentCommand(agentType);
+    // Pre-dispatch security scan — alert if prompt contains potential secrets
+    const secretsFound = scanForSecrets(task.description ?? task.title);
+    if (secretsFound.length > 0) {
+      logger.warn(`Task ${task.id} prompt may contain secrets: ${secretsFound.join(", ")}`);
+      store.createAlert("security_warning", `Task "${task.title}" prompt may contain: ${secretsFound.join(", ")}`, task.id);
+    }
+
+    // Resolve agent type and model for this task (per-task override → role-based → config default)
+    const defaultAgent: AgentType = config.agent ?? "opencode";
+    const { agent: resolvedAgentType, model: resolvedModel } = resolveAgentForTask(task, defaultAgent, config.provider?.model);
+    let agentCommand = buildAgentCommand(resolvedAgentType);
+    if (resolvedModel) {
+      envVars.OPENCODE_MODEL = resolvedModel;
+    }
 
     // For OpenCode, resolve the model string from provider config
     // For opencode-config, strip --model entirely — let opencode use its own config
-    if (agentType === "opencode" && config.provider?.type === "opencode-config") {
+    if (resolvedAgentType === "opencode" && config.provider?.type === "opencode-config") {
       const filtered: string[] = [];
       for (let i = 0; i < agentCommand.length; i++) {
         if (agentCommand[i] === "--model") {
@@ -222,16 +263,15 @@ export function startOrchestrator(
         }
       }
       agentCommand = filtered;
-    } else if (agentType === "opencode" && config.provider) {
+    } else if (resolvedAgentType === "opencode" && config.provider) {
       const model = resolveOpenCodeModel(config.provider);
       agentCommand = agentCommand.map(arg => arg === "{model}" ? model : arg);
-    } else if (agentType === "opencode") {
-      // No provider configured, use default model
+    } else if (resolvedAgentType === "opencode") {
       agentCommand = agentCommand.map(arg => arg === "{model}" ? "anthropic/claude-sonnet-4-20250514" : arg);
     }
 
     // Merge agent-specific env vars
-    const agentEnv = getAgentEnvVars(agentType);
+    const agentEnv = getAgentEnvVars(resolvedAgentType);
     Object.assign(envVars, agentEnv);
 
     // Resolve credential paths for OAuth providers, deduplicated
@@ -240,7 +280,7 @@ export function startOrchestrator(
       : [];
 
     // Also include agent-specific credential paths (dedup to avoid duplicate Docker mounts)
-    const agentCredPaths = getAgentCredentialPaths(agentType);
+    const agentCredPaths = getAgentCredentialPaths(resolvedAgentType);
     for (const p of agentCredPaths) {
       if (!credentialPaths.includes(p)) {
         credentialPaths.push(p);
@@ -249,7 +289,7 @@ export function startOrchestrator(
 
     // Auto-discover skills from registries based on task prompt
     let skillPaths: Array<{ name: string; hostDir: string }> = [];
-    if (config.skills.autoDiscover && agentType !== "codex") {
+    if (config.skills.autoDiscover && resolvedAgentType !== "codex") {
       try {
         const projectRoot = process.cwd();
         const taskPrompt = task.description ?? task.title;
@@ -280,7 +320,7 @@ export function startOrchestrator(
         providerType: config.provider?.type,
         credentialPaths,
         agentCommand,
-        agentType,
+        agentType: resolvedAgentType,
         skillPaths,
         gatewayPort: config.gateway.port,
       });
@@ -291,7 +331,7 @@ export function startOrchestrator(
       // Stream logs in background
       containerManager
         .streamLogs(container.containerId, (kind, line) => {
-          store.addEvent(run.id, kind, line);
+          store.addEvent(run.id, kind, sanitizeSecrets(line));
         })
         .then(async (exitCode) => {
           store.finishRun(run.id, exitCode === 0 ? "done" : "failed", exitCode);
@@ -316,6 +356,32 @@ export function startOrchestrator(
               }
             } catch (err) {
               logger.warn(`Auto-memory failed for task ${task.id}:`, err);
+            }
+
+            // Extract instincts from task output (learned patterns)
+            try {
+              const events = store.listEvents(run.id);
+              const output = events.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
+              if (output && output.length > 50) {
+                const newInstincts = extractInstincts(task.title, output, task.id);
+                const existing = listInstincts(memoryVaultPath);
+                const existingIds = new Set(existing.map(i => i.id));
+                for (const instinct of newInstincts) {
+                  if (existingIds.has(instinct.id)) {
+                    const current = existing.find(i => i.id === instinct.id)!;
+                    current.confidence = Math.min(0.95, current.confidence + 0.1);
+                    current.evidence.push(`Task ${task.id}: ${task.title}`);
+                    saveInstinct(memoryVaultPath, current);
+                  } else {
+                    saveInstinct(memoryVaultPath, instinct);
+                  }
+                }
+                if (newInstincts.length > 0) {
+                  logger.info(`Extracted ${newInstincts.length} instinct(s) from task ${task.id}`);
+                }
+              }
+            } catch (err) {
+              logger.warn(`Instinct extraction failed for task ${task.id}:`, err);
             }
 
             // Auto-restart: if a self-improve task completed, check if git HEAD
@@ -417,7 +483,22 @@ export function startOrchestrator(
 
     try {
       const expired = store.getExpiredLeases();
+      const now = Math.floor(Date.now() / 1000);
       for (const lease of expired) {
+        // Auto-extend lease if the container is still producing events recently
+        // This prevents killing long-running tasks that are still working
+        const run = store.getRun(lease.run_id);
+        if (run && run.status === "running") {
+          const recentEvents = store.listEvents(lease.run_id).filter(
+            e => e.created_at > now - 60
+          );
+          if (recentEvents.length > 0) {
+            store.extendLease(lease.id, config.orchestrator.leaseDurationSec);
+            logger.info(`Extended lease ${lease.id} — container still producing events`);
+            continue;
+          }
+        }
+
         store.releaseLease(lease.id);
         store.createAlert("lease_expired", `Lease expired for task ${lease.task_id} (worker: ${lease.worker})`, lease.task_id);
         logger.warn(`Lease ${lease.id} expired for task ${lease.task_id}`);

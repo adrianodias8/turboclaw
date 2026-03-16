@@ -145,4 +145,6 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_task_id ON chat_messages(task_id);
 export const MIGRATIONS = [
   "ALTER TABLE tasks ADD COLUMN reply_jid TEXT",
   "ALTER TABLE crons ADD COLUMN one_shot INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE tasks ADD COLUMN agent_override TEXT",
+  "ALTER TABLE tasks ADD COLUMN model_override TEXT",
 ];

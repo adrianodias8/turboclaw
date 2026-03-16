@@ -1,6 +1,8 @@
 import { searchByFullText, searchByTag } from "./search";
 import { listNotes } from "./vault";
 import type { SearchResult } from "./types";
+import { join } from "path";
+import { existsSync, readFileSync, readdirSync } from "fs";
 
 export function buildCoreContext(vaultPath: string): string {
   const coreNotes = listNotes(vaultPath, "core");
@@ -57,4 +59,69 @@ export function buildContext(
   });
 
   return `# Relevant Memory Notes\n\n${sections.join("\n\n---\n\n")}`;
+}
+
+/**
+ * Build context from coding rules (docker/rules/).
+ * Always injects common/ rules, plus language-specific rules if detected.
+ */
+export function buildRulesContext(rulesDir: string, languages: string[] = []): string {
+  if (!existsSync(rulesDir)) return "";
+
+  const sections: string[] = [];
+
+  // Always inject common rules
+  const commonDir = join(rulesDir, "common");
+  if (existsSync(commonDir)) {
+    for (const file of readdirSync(commonDir).filter(f => f.endsWith(".md")).sort()) {
+      sections.push(readFileSync(join(commonDir, file), "utf-8").trim());
+    }
+  }
+
+  // Inject language-specific rules
+  for (const lang of languages) {
+    const langDir = join(rulesDir, lang);
+    if (existsSync(langDir)) {
+      for (const file of readdirSync(langDir).filter(f => f.endsWith(".md")).sort()) {
+        sections.push(readFileSync(join(langDir, file), "utf-8").trim());
+      }
+    }
+  }
+
+  if (sections.length === 0) return "";
+  return `# Coding Rules\n\n${sections.join("\n\n---\n\n")}`;
+}
+
+/**
+ * Build context from a role-specific skill (docker/skills/<role>/SKILL.md).
+ */
+export function buildRoleSkillContext(skillsDir: string, role: string): string {
+  const skillPath = join(skillsDir, role, "SKILL.md");
+  if (!existsSync(skillPath)) return "";
+  const content = readFileSync(skillPath, "utf-8").trim();
+  // Strip YAML frontmatter if present
+  const stripped = content.replace(/^---\n[\s\S]*?\n---\n*/, "").trim();
+  return `# Agent Role: ${role}\n\n${stripped}`;
+}
+
+/**
+ * Detect languages from workspace contents by checking for config files.
+ */
+export function detectLanguages(workspacePath: string): string[] {
+  const languages: string[] = [];
+  const checks: [string, string][] = [
+    ["tsconfig.json", "typescript"],
+    ["package.json", "typescript"],    // Bun/Node projects
+    ["composer.json", "php"],
+    ["go.mod", "golang"],
+    ["Cargo.toml", "rust"],
+    ["pyproject.toml", "python"],
+    ["requirements.txt", "python"],
+  ];
+  for (const [file, lang] of checks) {
+    if (existsSync(join(workspacePath, file)) && !languages.includes(lang)) {
+      languages.push(lang);
+    }
+  }
+  return languages;
 }

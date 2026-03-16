@@ -22,6 +22,8 @@ export interface Task {
   max_retries: number;
   retry_count: number;
   reply_jid: string | null;
+  agent_override: string | null;
+  model_override: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -82,6 +84,8 @@ export interface CreateTaskInput {
   priority?: number;
   maxRetries?: number;
   replyJid?: string | null;
+  agentOverride?: string | null;
+  modelOverride?: string | null;
 }
 
 export interface CreatePipelineInput {
@@ -89,7 +93,7 @@ export interface CreatePipelineInput {
   stages: unknown[];
 }
 
-export type AlertKind = "task_failed" | "lease_expired" | "whatsapp_disconnect";
+export type AlertKind = "task_failed" | "lease_expired" | "whatsapp_disconnect" | "security_warning";
 
 export interface Cron {
   id: string;
