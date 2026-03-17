@@ -3,19 +3,11 @@ import { Box, Text } from "ink";
 import type { Store } from "../../tracker/store";
 import { useTaskList } from "../hooks/use-tracker";
 import { useHealthStatus, useActiveRuns, useAlertCount, useCronList } from "../hooks/use-health";
+import { STATUS_COLORS, formatTimestamp } from "../constants";
 
 interface DashboardProps {
   store: Store;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "yellow",
-  queued: "blue",
-  running: "cyan",
-  done: "green",
-  failed: "red",
-  cancelled: "gray",
-};
 
 function formatElapsed(startedAt: number): string {
   const now = Math.floor(Date.now() / 1000);
@@ -24,14 +16,6 @@ function formatElapsed(startedAt: number): string {
   const s = elapsed % 60;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
-}
-
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return "never";
-  const d = new Date(ts * 1000);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
 }
 
 export function Dashboard({ store }: DashboardProps) {
@@ -94,7 +78,7 @@ export function Dashboard({ store }: DashboardProps) {
           ) : (
             recentDone.map((t) => (
               <Box key={t.id} gap={2}>
-                <Text color="green">{STATUS_COLORS[t.status] ? t.status : t.status}</Text>
+                <Text color={STATUS_COLORS[t.status]}>{t.status}</Text>
                 <Text>{t.title.slice(0, 40)}</Text>
               </Box>
             ))

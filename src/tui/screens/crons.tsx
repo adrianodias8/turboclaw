@@ -3,22 +3,13 @@ import { Box, Text, useInput } from "ink";
 import { TextInput } from "@inkjs/ui";
 import type { Store } from "../../tracker/store";
 import { useCronList } from "../hooks/use-health";
+import { formatTimestamp } from "../constants";
 
 interface CronsProps {
   store: Store;
 }
 
 type Mode = "list" | "create-name" | "create-schedule" | "create-title";
-
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return "—";
-  const d = new Date(ts * 1000);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const MM = String(d.getMonth() + 1).padStart(2, "0");
-  const DD = String(d.getDate()).padStart(2, "0");
-  return `${MM}/${DD} ${hh}:${mm}`;
-}
 
 export function Crons({ store }: CronsProps) {
   const crons = useCronList(store);
@@ -176,10 +167,10 @@ export function Crons({ store }: CronsProps) {
                 <Text dimColor>{cron.schedule}</Text>
               </Box>
               <Box width={16}>
-                <Text dimColor>last: {formatTimestamp(cron.last_run_at)}</Text>
+                <Text dimColor>last: {formatTimestamp(cron.last_run_at, { includeDate: true })}</Text>
               </Box>
               <Box>
-                <Text dimColor>next: {formatTimestamp(cron.next_run_at)}</Text>
+                <Text dimColor>next: {formatTimestamp(cron.next_run_at, { includeDate: true })}</Text>
               </Box>
             </Box>
           ))}

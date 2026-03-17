@@ -21,13 +21,19 @@ export function scanForSecrets(text: string): string[] {
     .map(([, desc]) => desc);
 }
 
+// Pre-compiled global regex for sanitization (avoids re-creating RegExp per call)
+const SANITIZE_PATTERNS = SECRET_PATTERNS.map(
+  ([pattern, desc]) => [new RegExp(pattern.source, "g"), desc] as const
+);
+
 /**
  * Redact known secret patterns from a string (for log sanitization).
  */
 export function sanitizeSecrets(text: string): string {
   let result = text;
-  for (const [pattern, desc] of SECRET_PATTERNS) {
-    result = result.replace(new RegExp(pattern.source, "g"), `[REDACTED:${desc}]`);
+  for (const [pattern, desc] of SANITIZE_PATTERNS) {
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, `[REDACTED:${desc}]`);
   }
   return result;
 }

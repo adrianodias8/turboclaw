@@ -90,7 +90,7 @@ export function startOrchestrator(
 
     // Build environment variables from provider config
     const envVars: Record<string, string> = {};
-    const agentType: AgentType = config.agent ?? "opencode";
+    const defaultAgent: AgentType = config.agent ?? "opencode";
 
     // For opencode-config, skip all env var injection — opencode uses its own mounted config
     if (config.provider && config.provider.type !== "opencode-config") {
@@ -110,23 +110,17 @@ export function startOrchestrator(
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           }
           // OpenCode and Codex also need ANTHROPIC_API_KEY if using Anthropic provider
-          if (agentType !== "claude-code" && key.startsWith("sk-ant-") && !key.startsWith("sk-ant-oat")) {
+          if (defaultAgent !== "claude-code" && key.startsWith("sk-ant-") && !key.startsWith("sk-ant-oat")) {
             envVars.ANTHROPIC_API_KEY = key;
           }
-        } else if (provType === "openai" || provType === "chatgpt" || provType === "copilot") {
-          envVars.OPENAI_API_KEY = key;
-        } else if (provType === "codex") {
-          envVars.OPENAI_API_KEY = key;
-        } else if (provType === "custom") {
+        } else if (["openai", "chatgpt", "copilot", "codex", "custom"].includes(provType)) {
           envVars.OPENAI_API_KEY = key;
         }
 
         // Cross-agent compatibility: ensure the agent's expected env var is set
-        if (agentType === "claude-code" && !envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
-          // Claude Code needs ANTHROPIC_API_KEY — set it from whatever key we have
+        if (defaultAgent === "claude-code" && !envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
           envVars.ANTHROPIC_API_KEY = key;
-        } else if (agentType === "codex" && !envVars.OPENAI_API_KEY) {
-          // Codex needs OPENAI_API_KEY
+        } else if (defaultAgent === "codex" && !envVars.OPENAI_API_KEY) {
           envVars.OPENAI_API_KEY = key;
         }
       }
@@ -243,8 +237,6 @@ export function startOrchestrator(
       store.createAlert("security_warning", `Task "${task.title}" prompt may contain: ${secretsFound.join(", ")}`, task.id);
     }
 
-    // Resolve agent type and model for this task (per-task override → role-based → config default)
-    const defaultAgent: AgentType = config.agent ?? "opencode";
     const { agent: resolvedAgentType, model: resolvedModel } = resolveAgentForTask(task, defaultAgent, config.provider?.model);
     let agentCommand = buildAgentCommand(resolvedAgentType);
     if (resolvedModel) {
@@ -347,12 +339,14 @@ export function startOrchestrator(
               store.updateTaskStatus(task.id, "done");
             }
 
+            // Collect stdout once for auto-memory and instinct extraction
+            const runEvents = store.listEvents(run.id);
+            const taskOutput = runEvents.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
+
             // Auto-memory: write task log to vault
             try {
-              const events = store.listEvents(run.id);
-              const output = events.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
-              if (output) {
-                maybeCreateTaskMemory(memoryVaultPath, task, output);
+              if (taskOutput) {
+                maybeCreateTaskMemory(memoryVaultPath, task, taskOutput);
               }
             } catch (err) {
               logger.warn(`Auto-memory failed for task ${task.id}:`, err);
@@ -360,10 +354,8 @@ export function startOrchestrator(
 
             // Extract instincts from task output (learned patterns)
             try {
-              const events = store.listEvents(run.id);
-              const output = events.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
-              if (output && output.length > 50) {
-                const newInstincts = extractInstincts(task.title, output, task.id);
+              if (taskOutput && taskOutput.length > 50) {
+                const newInstincts = extractInstincts(task.title, taskOutput, task.id);
                 const existing = listInstincts(memoryVaultPath);
                 const existingIds = new Set(existing.map(i => i.id));
                 for (const instinct of newInstincts) {

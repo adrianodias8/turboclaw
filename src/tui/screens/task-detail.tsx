@@ -4,21 +4,13 @@ import type { Store } from "../../tracker/store";
 import { useTask } from "../hooks/use-tracker";
 import { EventStream } from "../components/event-stream";
 import type { Screen } from "../components/nav";
+import { STATUS_COLORS } from "../constants";
 
 interface TaskDetailProps {
   store: Store;
   taskId: string;
   onNavigate: (screen: Screen) => void;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "yellow",
-  queued: "blue",
-  running: "cyan",
-  done: "green",
-  failed: "red",
-  cancelled: "gray",
-};
 
 export function TaskDetail({ store, taskId, onNavigate }: TaskDetailProps) {
   const { task, refresh } = useTask(store, taskId);

@@ -2,15 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import type { Store } from "../../tracker/store";
 import type { Event } from "../../tracker/types";
-
-const KIND_COLORS: Record<string, string> = {
-  stdout: "white",
-  stderr: "red",
-  status: "cyan",
-  artifact: "green",
-  error: "red",
-  info: "blue",
-};
+import { KIND_COLORS } from "../constants";
 
 interface EventStreamProps {
   store: Store;

@@ -2,19 +2,11 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import type { Store } from "../../tracker/store";
 import type { Event } from "../../tracker/types";
+import { KIND_COLORS, truncate } from "../constants";
 
 interface LogsProps {
   store: Store;
 }
-
-const KIND_COLORS: Record<string, string> = {
-  stdout: "white",
-  stderr: "red",
-  status: "cyan",
-  artifact: "green",
-  error: "red",
-  info: "blue",
-};
 
 export function Logs({ store }: LogsProps) {
   const [events, setEvents] = useState<(Event & { _taskTitle?: string })[]>([]);
@@ -132,12 +124,3 @@ export function Logs({ store }: LogsProps) {
   );
 }
 
-function truncate(value: string, max: number): string {
-  if (value.length <= max) {
-    return value;
-  }
-  if (max <= 3) {
-    return value.slice(0, max);
-  }
-  return `${value.slice(0, max - 3)}...`;
-}

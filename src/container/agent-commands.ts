@@ -77,42 +77,28 @@ export function getAgentCredentialPaths(agentType: AgentType): string[] {
   return paths;
 }
 
+// Maps provider type → [prefix for user models, default model string]
+const PROVIDER_MODEL_DEFAULTS: Record<string, [string, string]> = {
+  anthropic: ["anthropic", "anthropic/claude-sonnet-4-20250514"],
+  "claude-code": ["anthropic", "anthropic/claude-sonnet-4-20250514"],
+  "claude-sub": ["anthropic", "anthropic/claude-sonnet-4-20250514"],
+  openai: ["openai", "openai/gpt-4o"],
+  chatgpt: ["openai", "openai/gpt-4o"],
+  ollama: ["ollama", "ollama/qwen3-coder"],
+  copilot: ["copilot", "copilot/gpt-4o"],
+  codex: ["openai", "openai/gpt-4o"],
+  custom: ["custom", "custom/default"],
+};
+
 /**
  * Resolves a provider config to an OpenCode-compatible model string.
  * Format: "provider/model-name"
  */
 export function resolveOpenCodeModel(provider: { type: string; model?: string }): string {
-  const userModel = provider.model;
+  const entry = PROVIDER_MODEL_DEFAULTS[provider.type];
+  if (!entry) return provider.model ?? "anthropic/claude-sonnet-4-20250514";
 
-  switch (provider.type) {
-    case "anthropic":
-    case "claude-code":
-    case "claude-sub":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `anthropic/${userModel}`)
-        : "anthropic/claude-sonnet-4-20250514";
-    case "openai":
-    case "chatgpt":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `openai/${userModel}`)
-        : "openai/gpt-4o";
-    case "ollama":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `ollama/${userModel}`)
-        : "ollama/qwen3-coder";
-    case "copilot":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `copilot/${userModel}`)
-        : "copilot/gpt-4o";
-    case "codex":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `openai/${userModel}`)
-        : "openai/gpt-4o";
-    case "custom":
-      return userModel
-        ? (userModel.includes("/") ? userModel : `custom/${userModel}`)
-        : "custom/default";
-    default:
-      return userModel ?? "anthropic/claude-sonnet-4-20250514";
-  }
+  const [prefix, defaultModel] = entry;
+  if (!provider.model) return defaultModel;
+  return provider.model.includes("/") ? provider.model : `${prefix}/${provider.model}`;
 }

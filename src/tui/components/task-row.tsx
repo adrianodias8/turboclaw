@@ -1,15 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { Task } from "../../tracker/types";
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: "yellow",
-  queued: "blue",
-  running: "cyan",
-  done: "green",
-  failed: "red",
-  cancelled: "gray",
-};
+import { STATUS_COLORS } from "../constants";
 
 interface TaskRowProps {
   task: Task;

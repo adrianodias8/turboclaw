@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 import type { Store } from "../../tracker/store";
 import { useAlertList } from "../hooks/use-health";
 import type { AlertKind } from "../../tracker/types";
+import { formatTimestamp } from "../constants";
 
 interface AlertsProps {
   store: Store;
@@ -13,14 +14,6 @@ const ALERT_COLORS: Record<AlertKind, string> = {
   lease_expired: "yellow",
   whatsapp_disconnect: "magenta",
 };
-
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts * 1000);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `${hh}:${mm}:${ss}`;
-}
 
 export function Alerts({ store }: AlertsProps) {
   const { alerts, refresh } = useAlertList(store);
@@ -69,7 +62,7 @@ export function Alerts({ store }: AlertsProps) {
                 </Text>
               </Box>
               <Box width={10}>
-                <Text dimColor>{formatTimestamp(alert.created_at)}</Text>
+                <Text dimColor>{formatTimestamp(alert.created_at, { includeSeconds: true })}</Text>
               </Box>
               {alert.task_id && (
                 <Box width={10}>

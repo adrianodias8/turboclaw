@@ -1,5 +1,5 @@
 import type { Store } from "../tracker/store";
-import type { CreateTaskInput, CreatePipelineInput } from "../tracker/types";
+import type { CreateTaskInput, CreatePipelineInput, TaskStatus } from "../tracker/types";
 import type { GatewayOptions } from "./server";
 import { logger } from "../logger";
 
@@ -88,13 +88,13 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     }
 
     if (method === "GET" && pathname === "/tasks") {
-      const status = url.searchParams.get("status") as CreateTaskInput["agentRole"] | null;
+      const status = url.searchParams.get("status");
       const stage = url.searchParams.get("stage");
       const limit = url.searchParams.get("limit");
       const cursor = url.searchParams.get("cursor");
 
       const tasks = store.listTasks({
-        status: status as any,
+        status: status as TaskStatus | undefined ?? undefined,
         stage: stage ?? undefined,
         limit: limit ? parseInt(limit, 10) : undefined,
         cursor: cursor ?? undefined,

@@ -8,6 +8,7 @@ import { createCoreNote, updateNoteContent } from "../../memory/writer";
 import { deleteNote } from "../../memory/vault";
 import { compileWeeklySummary } from "../../memory/librarian";
 import type { MemoryNote } from "../../memory/types";
+import { formatDate, truncate } from "../constants";
 
 interface MemoryProps {
   config: TurboClawConfig;
@@ -16,14 +17,9 @@ interface MemoryProps {
 type Tier = "core" | "daily" | "weekly";
 type Mode = "list" | "view" | "create-title" | "create-content" | "edit";
 
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts * 1000);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function truncate(s: string, max: number): string {
+function truncateOneLine(s: string, max: number): string {
   const oneLine = s.replace(/\n/g, " ").trim();
-  return oneLine.length > max ? oneLine.slice(0, max) + "..." : oneLine;
+  return truncate(oneLine, max);
 }
 
 export function Memory({ config }: MemoryProps) {
@@ -138,7 +134,7 @@ export function Memory({ config }: MemoryProps) {
           <Text bold color="cyan">{viewNote.frontmatter.title ?? "Untitled"}</Text>
           <Text dimColor>[Esc] back</Text>
         </Box>
-        <Text dimColor>Created: {formatTimestamp(viewNote.frontmatter.created)}</Text>
+        <Text dimColor>Created: {formatDate(viewNote.frontmatter.created)}</Text>
         {viewNote.frontmatter.tags.length > 0 && (
           <Text dimColor>Tags: {viewNote.frontmatter.tags.join(", ")}</Text>
         )}
@@ -214,8 +210,8 @@ export function Memory({ config }: MemoryProps) {
         <Box flexDirection="column">
           {notes.map((note, i) => {
             const title = note.frontmatter.title ?? "Untitled";
-            const date = formatTimestamp(note.frontmatter.created);
-            const preview = truncate(note.content, 60);
+            const date = formatDate(note.frontmatter.created);
+            const preview = truncateOneLine(note.content, 60);
 
             return (
               <Box key={note.path} gap={1}>
