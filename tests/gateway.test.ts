@@ -146,6 +146,101 @@ describe("SSE events", () => {
   });
 });
 
+describe("crons", () => {
+  it("creates and lists crons", async () => {
+    const { status, data } = await req("POST", "/crons", {
+      name: "nightly-backup",
+      schedule: "0 2 * * *",
+      taskTemplate: { title: "Run backup", agentRole: "coder" },
+    });
+    expect(status).toBe(201);
+    expect(data.name).toBe("nightly-backup");
+    expect(data.schedule).toBe("0 2 * * *");
+
+    const list = await req("GET", "/crons");
+    expect(list.data).toHaveLength(1);
+    expect(list.data[0].name).toBe("nightly-backup");
+  });
+
+  it("rejects cron without required fields", async () => {
+    const { status } = await req("POST", "/crons", { name: "bad" });
+    expect(status).toBe(400);
+  });
+
+  it("toggles cron enabled/disabled", async () => {
+    const { data: cron } = await req("POST", "/crons", {
+      name: "test-cron",
+      schedule: "*/5 * * * *",
+      taskTemplate: { title: "Test" },
+    });
+    expect(cron.enabled).toBe(1);
+
+    const { data: toggled } = await req("POST", `/crons/${cron.id}/toggle`);
+    expect(toggled.enabled).toBe(0);
+
+    const { data: toggledBack } = await req("POST", `/crons/${toggled.id}/toggle`);
+    expect(toggledBack.enabled).toBe(1);
+  });
+
+  it("returns 404 for toggling nonexistent cron", async () => {
+    const { status } = await req("POST", "/crons/nonexistent/toggle");
+    expect(status).toBe(404);
+  });
+
+  it("deletes a cron", async () => {
+    const { data: cron } = await req("POST", "/crons", {
+      name: "to-delete",
+      schedule: "0 0 * * *",
+      taskTemplate: { title: "Delete me" },
+    });
+
+    const res = await req("DELETE", `/crons/${cron.id}`);
+    expect(res.data.ok).toBe(true);
+
+    const list = await req("GET", "/crons");
+    expect(list.data).toHaveLength(0);
+  });
+
+  it("returns 404 for deleting nonexistent cron", async () => {
+    const { status } = await req("DELETE", "/crons/nonexistent");
+    expect(status).toBe(404);
+  });
+});
+
+describe("alerts", () => {
+  it("lists alerts", async () => {
+    const { data } = await req("GET", "/alerts");
+    expect(data).toEqual([]);
+  });
+
+  it("lists unacknowledged alerts only", async () => {
+    store.createAlert("task_failed", "Task X failed", null);
+    store.createAlert("lease_expired", "Lease Y expired", null);
+
+    const all = await req("GET", "/alerts");
+    expect(all.data).toHaveLength(2);
+
+    // Acknowledge one
+    store.acknowledgeAlert(all.data[1].id);
+
+    const unack = await req("GET", "/alerts?acknowledged=false");
+    expect(unack.data).toHaveLength(1);
+    expect(unack.data[0].message).toBe("Task X failed");
+  });
+
+  it("acknowledges an alert via API", async () => {
+    store.createAlert("task_failed", "Something broke", null);
+    const { data: alerts } = await req("GET", "/alerts");
+    expect(alerts).toHaveLength(1);
+
+    const ackRes = await req("POST", `/alerts/${alerts[0].id}/acknowledge`);
+    expect(ackRes.data.ok).toBe(true);
+
+    const unack = await req("GET", "/alerts?acknowledged=false");
+    expect(unack.data).toHaveLength(0);
+  });
+});
+
 describe("404", () => {
   it("returns not found for unknown routes", async () => {
     const { status } = await req("GET", "/unknown");
