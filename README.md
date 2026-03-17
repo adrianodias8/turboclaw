@@ -34,6 +34,8 @@ bun run src/index.ts
 - **Tiered memory** — three-tier system (core/daily/weekly) with auto-pruning and TUI management
 - **Pipelines** — multi-stage workflows with gates between stages
 - **Self-improvement** — mount TurboClaw's own source into a container and let agents improve it
+- **Autoresearch** — autonomous experiment runner with time-budgeted loops and test metrics
+- **Instincts** — pattern learning from task outcomes with confidence decay
 - **WhatsApp** — send a message from your phone, get notified when it's done
 
 ## Architecture
@@ -158,7 +160,7 @@ TurboClaw uses a tiered memory system stored as an Obsidian-compatible vault at 
 │  │                │  │  (default: 7)  │  │  (default: 4)      │ │
 │  │ Editable:      │  │ Editable:      │  │ Editable:          │ │
 │  │  full CRUD     │  │  view/delete   │  │  view/delete/regen │ │
-│  │  via TUI [7]   │  │  via TUI [7]   │  │  via TUI [7]      │ │
+│  │  via TUI [4]   │  │  via TUI [4]   │  │  via TUI [4]      │ │
 │  └────────────────┘  └────────────────┘  └────────────────────┘ │
 │                                                                  │
 │  Librarian (runs every 5 min):                                   │
@@ -222,7 +224,7 @@ When a task runs, memory is injected into the prompt in this order:
 
 ### Managing Memory via TUI
 
-Press `[7]` to open the Memory screen. Switch between tiers with:
+Press `[4]` to open the Memory screen. Switch between tiers with:
 
 | Key | Tab | Actions |
 |-----|-----|---------|
@@ -254,10 +256,10 @@ Or toggle it in the TUI Settings screen.
 | `1` | Dashboard | Health metrics, active runs, recent completions, upcoming crons |
 | `2` | Tasks | Task list with create, filter, navigate to detail |
 | `3` | Crons | Cron schedules — create, toggle, delete, run now |
-| `4` | Alerts | Unacknowledged alerts — acknowledge individually or all |
-| `5` | Logs | Live event stream from all recent runs |
-| `6` | Settings | Concurrency, strategy, agent type, WhatsApp, self-improve |
-| `7` | Memory | Browse/manage core, daily, and weekly memories |
+| `4` | Memory | Browse/manage core, daily, and weekly memories |
+| `5` | Alerts | Unacknowledged alerts — acknowledge individually or all |
+| `6` | Logs | Live event stream from all recent runs |
+| `7` | Settings | Concurrency, strategy, agent type, WhatsApp, self-improve |
 
 ## Headless Mode
 
@@ -343,7 +345,7 @@ Environment variable overrides: `TURBOCLAW_GATEWAY_PORT=8080`, `TURBOCLAW_MAX_CO
 ## Testing
 
 ```bash
-bun test                    # 152 tests across 15 files
+bun test                    # 219 tests across 19 files
 ```
 
 ## Tech Stack
@@ -366,11 +368,12 @@ src/
   container/       — Docker management, agent command resolution, credentials
   gateway/         — REST API (Bun.serve)
   tui/
-    app.tsx        — root component, 7-screen navigation
+    app.tsx        — root component, 8-screen navigation
     screens/
       dashboard.tsx, tasks.tsx, task-detail.tsx, crons.tsx,
       alerts.tsx, logs.tsx, settings.tsx, onboarding.tsx,
       memory.tsx   — memory management (core/daily/weekly)
+      experiments.tsx — autoresearch session viewer
     hooks/
       use-memory.ts — polls vault notes by tier
     components/
@@ -384,7 +387,8 @@ src/
     auto-memory.ts — auto-capture task output with daily tags
     search.ts      — full-text, tag, wikilink graph search
     templates.ts   — frontmatter templates for all note types
+  autoresearch/    — autonomous experiment loop, ledger, metrics
   whatsapp/        — Baileys bridge, message parser, notifier
 docker/            — Worker Dockerfile
-tests/             — 15 test files, 152 tests
+tests/             — 19 test files, 219 tests
 ```

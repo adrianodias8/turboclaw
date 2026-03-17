@@ -9,7 +9,7 @@
 **Runtime:** Bun (latest)
 **Database:** Bun built-in SQLite (`bun:sqlite`)
 **Container runtime:** Docker (required)
-**Agent runtime:** Claude Code (default; OpenCode and Codex planned)
+**Agent runtime:** OpenCode (default), Claude Code, Codex — configurable via `config.agent`
 **Browser automation:** Not yet implemented (planned: opencode-browser or Playwright)
 
 ---
@@ -218,15 +218,10 @@ Policy engine. Pulls work from tracker, decides what runs when and where.
 
 ```typescript
 interface OrchestratorConfig {
-  pollIntervalMs: number;       // default: 2000
-  maxConcurrency: number;       // default: 3
-  defaultLeaseTtlMs: number;    // default: 300_000 (5 min)
-  retryMaxAttempts: number;     // default: 3
-  retryBackoffMs: number;       // default: 10_000
-  strategies: {
-    scheduling: 'fifo' | 'priority' | 'round-robin';
-    routing: Record<string, string>;  // role → container image tag
-  };
+  pollIntervalMs: number;         // default: 2000
+  maxConcurrency: number;         // default: 2
+  leaseDurationSec: number;       // default: 600 (10 min)
+  schedulingStrategy: 'fifo' | 'priority' | 'round-robin';  // default: "priority"
 }
 ```
 
@@ -337,6 +332,9 @@ HTTP API for external interaction. Minimal REST surface.
 | GET | `/status` | Orchestrator status (active workers, queue depth) |
 | POST | `/pipelines` | Create pipeline |
 | GET | `/pipelines` | List pipelines |
+| POST | `/restart` | Gracefully restart TurboClaw (exit 75) |
+| GET | `/experiments/sessions` | List autoresearch sessions |
+| GET | `/experiments/:sessionId` | List experiments in a session |
 
 **Server:** Bun's built-in `Bun.serve()` — no Express, no Hono, just native Bun HTTP.
 
@@ -376,10 +374,10 @@ turboclaw setup
 | Tasks | `2` | Task list with status indicators, create new task inline |
 | Task Detail | `Enter` on task | Run events stream, artifacts, retry/cancel actions |
 | Crons | `3` | Cron schedule CRUD — create, toggle, delete, run now |
-| Alerts | `4` | Unacknowledged alerts — acknowledge individually or all |
-| Logs | `5` | Live log viewer — streams events from all active runs |
-| Settings | `6` | Edit config: provider keys, model selection, concurrency, scheduling strategy |
-| Memory | `7` | Three-tier memory management: core/daily/weekly sub-tabs with full CRUD |
+| Memory | `4` | Three-tier memory management: core/daily/weekly sub-tabs with full CRUD |
+| Alerts | `5` | Unacknowledged alerts — acknowledge individually or all |
+| Logs | `6` | Live log viewer — streams events from all active runs |
+| Settings | `7` | Edit config: provider keys, model selection, concurrency, scheduling strategy |
 | Onboarding | auto on first run | Step-by-step wizard: check Docker, set provider keys, build worker image, WhatsApp, core memory setup |
 
 **Navigation:**
@@ -535,7 +533,7 @@ TurboClaw uses an Obsidian-compatible vault as its long-term memory, organized i
 
 | Tier | Dir | Injected | Lifecycle | Editable |
 |------|-----|----------|-----------|----------|
-| **Core** | `core/` | Always (every prompt) | Permanent, user-managed | Full CRUD via TUI `[7]` |
+| **Core** | `core/` | Always (every prompt) | Permanent, user-managed | Full CRUD via TUI `[4]` |
 | **Daily** | `tasks/` | Search-based | Auto-captured on task completion, pruned after N days | View/delete via TUI |
 | **Weekly** | `weekly/` | Search-based | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
 
@@ -746,8 +744,16 @@ turboclaw/
 │   │   ├── auto-memory.ts       # Auto-capture task output with daily tags
 │   │   ├── librarian.ts         # Inbox processing, weekly compilation, pruning
 │   │   ├── scheduler.ts         # Periodic librarian with retention config
+│   │   ├── instincts.ts         # Pattern learning (trigger/action pairs with confidence decay)
 │   │   ├── templates.ts         # Note templates (fleeting, permanent, task-log, moc, core, weekly)
 │   │   └── types.ts             # NoteType includes "core" | "weekly-summary"
+│   │
+│   ├── autoresearch/
+│   │   ├── loop.ts              # Autonomous experiment runner
+│   │   ├── program.ts           # PROGRAM.md parser
+│   │   ├── ledger.ts            # Session + result tracking
+│   │   ├── metrics.ts           # Test metrics extraction
+│   │   └── types.ts
 │   │
 │   └── gateway/
 │       ├── server.ts            # Bun.serve() HTTP server
@@ -755,12 +761,9 @@ turboclaw/
 │       └── types.ts
 │
 ├── docker/
-│   ├── Dockerfile.worker        # Worker container image
-│   └── opencode.json            # OpenCode config for workers
-│
-├── config/
-│   ├── default.json             # Default configuration
-│   └── skills-manifest.json     # Skills to pre-fetch
+│   ├── Dockerfile.opencode      # Worker container image (OpenCode + browser)
+│   ├── skills-manifest.json     # Seed skills baked into image
+│   └── skills/                  # Skill definitions (SKILL.md, PROGRAM.md)
 │
 ├── scripts/
 │   ├── fetch-skills.ts          # Skills auto-fetcher
@@ -791,11 +794,9 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
   },
   "orchestrator": {
     "pollIntervalMs": 2000,
-    "maxConcurrency": 3,
-    "defaultLeaseTtlMs": 300000,
-    "retryMaxAttempts": 3,
-    "retryBackoffMs": 10000,
-    "scheduling": "priority"
+    "maxConcurrency": 2,
+    "leaseDurationSec": 600,
+    "schedulingStrategy": "priority"
   },
   "container": {
     "image": "turboclaw-worker:latest",
@@ -898,7 +899,7 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 |----------|-----------|
 | Bun over Node | Native SQLite, faster startup, TypeScript-first, Bun.serve() |
 | Bun SQLite over external DB | Zero dependencies, embedded, perfect for single-user |
-| Claude Code as default agent | Most capable coding agent; OpenCode/Codex support planned |
+| OpenCode as default agent | Multi-provider support via host config; Claude Code and Codex also supported |
 | Docker over Apple Container | Cross-platform, Hetzner-friendly, industry standard |
 | REST API over WebSocket | Simpler, SSE for streaming, easier to debug |
 | No "skills over features" contribution model | NanoClaw's PR-as-skills pattern is excluded; we accept normal code contributions |

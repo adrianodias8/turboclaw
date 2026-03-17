@@ -45,7 +45,7 @@ Spawns Docker containers running the configured agent CLI. Each task gets its ow
 REST API via `Bun.serve()`. Thin layer over tracker operations. SSE for event streaming.
 
 ### TUI (`src/tui/`)
-Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Seven screens: Dashboard, Tasks, Crons, Alerts, Logs, Settings, Memory.
+Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Eight screens: Dashboard, Tasks, Crons, Memory, Alerts, Logs, Settings, Experiments.
 
 **Key rules for TUI code:**
 - All screens are React functional components using Ink's `<Box>` and `<Text>` primitives
@@ -96,6 +96,7 @@ src/
       pipelines.tsx — pipeline CRUD (accessible from settings)
       logs.tsx      — live event stream viewer
       memory.tsx    — three-tier memory management (core/daily/weekly sub-tabs)
+      experiments.tsx — autoresearch experiment sessions and results
     components/
       nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Memory [5] Alerts [6] Logs [7] Settings
       status-bar.tsx — bottom bar: queue, workers, uptime, alert badge, provider, WA status
@@ -150,8 +151,16 @@ src/
     auto-memory.ts  — auto-capture task output with daily + date tags
     librarian.ts    — inbox processing, link discovery, orphan detection, weekly compilation, expired memory pruning
     scheduler.ts    — periodic librarian runner with retention config (dailyRetentionDays, weeklyRetentionWeeks)
+    instincts.ts    — pattern learning system (trigger/action pairs with confidence decay + evidence tracking)
     templates.ts    — note template strings with frontmatter (fleeting, permanent, task-log, moc, core, weekly)
     types.ts        — MemoryNote, VaultConfig, SearchResult; NoteType includes "core" | "weekly-summary"
+
+  autoresearch/
+    loop.ts         — autonomous research loop (time-budgeted experiment runner)
+    program.ts      — parses PROGRAM.md into structured constraints + priorities
+    ledger.ts       — experiment session + result tracking (persisted to tracker store)
+    metrics.ts      — test runner metrics extraction (pass/fail/duration)
+    types.ts        — TestMetrics, ProgramConfig
 
   whatsapp/
     bridge.ts       — main WhatsApp bridge (Baileys + reconnect + QR callback + group support)
@@ -316,6 +325,7 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
   skills: { autoDiscover: true, maxPerTask: 5, registries: ["clawhub", "n-skills"] },
+  autoresearch: { enabled: false, timeBudgetMs: 600000, maxExperiments: 0, programPath: "docker/skills/self-improve/PROGRAM.md" },
 }
 ```
 
@@ -364,6 +374,28 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 | GET | /artifacts?taskId=&runId= | — | List artifacts |
 | GET | /status | — | Queue depth, active workers |
 | POST | /restart | — | Gracefully restart TurboClaw (exit 75) |
+| GET | /experiments/sessions | — | List autoresearch sessions |
+| GET | /experiments/:sessionId | — | List experiments in a session |
+
+## Autoresearch System (`src/autoresearch/`)
+
+Autonomous experiment runner for self-improvement. The orchestrator spawns a time-budgeted loop that iterates: read the PROGRAM.md, pick an experiment, run it in a container, measure test results, record to the ledger.
+
+- **PROGRAM.md** — defines constraints and priorities for experiments (what to try, what's off-limits)
+- **Ledger** — tracks experiment sessions and results via tracker store (`listExperimentSessions()`, `listExperiments()`)
+- **Metrics** — extracts pass/fail/duration from `bun test` output
+- **Config** — `autoresearch: { enabled, timeBudgetMs, maxExperiments, programPath }`
+- **TUI** — Experiments screen shows session history and results
+- **API** — `GET /experiments/sessions`, `GET /experiments/:sessionId`
+
+## Instincts System (`src/memory/instincts.ts`)
+
+Pattern learning layer on top of the memory vault. Instincts are trigger/action pairs with confidence scores that decay over time (-0.05/week), encouraging fresh evidence.
+
+- Stored as markdown files in `~/.turboclaw/memory/instincts/`
+- Each instinct has: `trigger`, `action`, `confidence` (0.3–0.9), `domain`, `scope`, `evidence[]` (capped at 20)
+- Built into prompt context via `buildInstinctContext()` alongside core memory
+- Created/updated automatically from task outcomes
 
 ## What NOT to Build
 
@@ -380,7 +412,7 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 ## Testing Strategy
 
 ```bash
-bun test                              # all tests (200 passing across 18 files)
+bun test                              # all tests (219 passing across 19 files)
 bun test tests/tracker.test.ts        # tracker CRUD
 bun test tests/crons.test.ts          # cron CRUD
 bun test tests/alerts.test.ts         # alert CRUD
@@ -399,6 +431,7 @@ bun test tests/chat-history.test.ts   # WhatsApp chat history
 bun test tests/container-utils.test.ts # container utility functions
 bun test tests/skills.test.ts         # skill discovery + cache
 bun test tests/time-parser.test.ts    # time reference parsing
+bun test tests/autoresearch.test.ts  # autoresearch loop + ledger
 ```
 
 ## Deployment Target
