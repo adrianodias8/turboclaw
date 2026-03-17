@@ -13,6 +13,7 @@ export interface ContainerManager {
   streamLogs(containerId: string, onData: (kind: "stdout" | "stderr", line: string) => void): Promise<number>;
   cleanup(containerId: string): Promise<void>;
   ensureNetwork(): Promise<void>;
+  checkDockerAvailable(): Promise<void>;
 }
 
 export function createContainerManager(
@@ -20,6 +21,7 @@ export function createContainerManager(
   config: ContainerConfig = DEFAULT_CONTAINER_CONFIG
 ): ContainerManager {
   let networkReady = false;
+  let dockerChecked = false;
 
   async function runDocker(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const proc = Bun.spawn(["docker", ...args], {
@@ -35,6 +37,14 @@ export function createContainerManager(
   }
 
   return {
+    async checkDockerAvailable() {
+      const { exitCode, stderr } = await runDocker(["ps"]);
+      if (exitCode !== 0) {
+        throw new Error(`Docker is not available. Is the Docker daemon running? (docker ps failed: ${stderr})`);
+      }
+      dockerChecked = true;
+    },
+
     async ensureNetwork() {
       const { exitCode } = await runDocker(["network", "inspect", config.network]);
       if (exitCode !== 0) {
@@ -47,6 +57,9 @@ export function createContainerManager(
     },
 
     async spawn(opts) {
+      if (!dockerChecked) {
+        await this.checkDockerAvailable();
+      }
       if (!networkReady) {
         const { exitCode } = await runDocker(["network", "inspect", config.network]);
         if (exitCode !== 0) {
