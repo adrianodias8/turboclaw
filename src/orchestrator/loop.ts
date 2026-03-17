@@ -586,6 +586,8 @@ export function startOrchestrator(
     stop() {
       running = false;
       clearInterval(interval);
+      // Cancel all pending streamLogs processes so they don't hang
+      containerManager.cancelAllStreamLogs();
       for (const [, containerId] of activeContainers) {
         containerManager.kill(containerId).catch(() => {});
       }

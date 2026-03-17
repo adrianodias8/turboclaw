@@ -6,11 +6,16 @@ import type { ContainerConfig, SpawnOptions, ContainerInfo } from "./types";
 import { DEFAULT_CONTAINER_CONFIG } from "./types";
 import { remapHomePath, rewriteLocalhostUrls } from "./utils";
 
+/** Default streamLogs timeout: 24 hours in milliseconds */
+export const DEFAULT_STREAM_LOGS_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
 export interface ContainerManager {
   spawn(opts: SpawnOptions): Promise<ContainerInfo>;
   kill(containerId: string): Promise<void>;
   inspect(containerId: string): Promise<ContainerInfo | null>;
-  streamLogs(containerId: string, onData: (kind: "stdout" | "stderr", line: string) => void): Promise<number>;
+  streamLogs(containerId: string, onData: (kind: "stdout" | "stderr", line: string) => void, timeoutMs?: number): Promise<number>;
+  cancelStreamLogs(containerId: string): void;
+  cancelAllStreamLogs(): void;
   cleanup(containerId: string): Promise<void>;
   ensureNetwork(): Promise<void>;
   checkDockerAvailable(): Promise<void>;
@@ -22,6 +27,7 @@ export function createContainerManager(
 ): ContainerManager {
   let networkReady = false;
   let dockerChecked = false;
+  const activeLogProcesses = new Map<string, { proc: ReturnType<typeof Bun.spawn>; timer: ReturnType<typeof setTimeout> | null }>();
 
   async function runDocker(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const proc = Bun.spawn(["docker", ...args], {
@@ -233,11 +239,19 @@ export function createContainerManager(
       };
     },
 
-    async streamLogs(containerId, onData) {
+    async streamLogs(containerId, onData, timeoutMs = DEFAULT_STREAM_LOGS_TIMEOUT_MS) {
       const proc = Bun.spawn(["docker", "logs", "-f", containerId], {
         stdout: "pipe",
         stderr: "pipe",
       });
+
+      // Set up timeout to kill the docker logs process if it hangs
+      const timer = setTimeout(() => {
+        logger.warn(`streamLogs timeout (${timeoutMs}ms) reached for container ${containerId} — killing docker logs process`);
+        proc.kill();
+      }, timeoutMs);
+
+      activeLogProcesses.set(containerId, { proc, timer });
 
       const readStream = async (stream: ReadableStream<Uint8Array>, kind: "stdout" | "stderr") => {
         const reader = stream.getReader();
@@ -258,12 +272,36 @@ export function createContainerManager(
         if (buffer.trim()) onData(kind, buffer);
       };
 
-      await Promise.all([
-        readStream(proc.stdout as ReadableStream<Uint8Array>, "stdout"),
-        readStream(proc.stderr as ReadableStream<Uint8Array>, "stderr"),
-      ]);
+      try {
+        await Promise.all([
+          readStream(proc.stdout as ReadableStream<Uint8Array>, "stdout"),
+          readStream(proc.stderr as ReadableStream<Uint8Array>, "stderr"),
+        ]);
 
-      return await proc.exited;
+        return await proc.exited;
+      } finally {
+        clearTimeout(timer);
+        activeLogProcesses.delete(containerId);
+      }
+    },
+
+    cancelStreamLogs(containerId) {
+      const entry = activeLogProcesses.get(containerId);
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.proc.kill();
+        activeLogProcesses.delete(containerId);
+        logger.info(`Cancelled streamLogs for container ${containerId}`);
+      }
+    },
+
+    cancelAllStreamLogs() {
+      for (const [containerId, entry] of activeLogProcesses) {
+        if (entry.timer) clearTimeout(entry.timer);
+        entry.proc.kill();
+        logger.info(`Cancelled streamLogs for container ${containerId}`);
+      }
+      activeLogProcesses.clear();
     },
 
     async cleanup(containerId) {
