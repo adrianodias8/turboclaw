@@ -34,9 +34,14 @@ export function startOrchestrator(
 ): OrchestratorHandle {
   let running = true;
   let activeCount = 0;
+  let tickInProgress = false;
   let restartRequested = false;
   let restartCallback: (() => void) | null = null;
   const activeContainers = new Map<string, string>(); // runId -> containerId
+
+  function decrementActiveCount() {
+    if (activeCount > 0) activeCount--;
+  }
 
   // Record git HEAD at boot for auto-restart detection
   const bootHead = (() => {
@@ -49,8 +54,17 @@ export function startOrchestrator(
   })();
 
   async function tick() {
-    if (!running) return;
+    if (!running || tickInProgress) return;
+    tickInProgress = true;
 
+    try {
+      await tickInner();
+    } finally {
+      tickInProgress = false;
+    }
+  }
+
+  async function tickInner() {
     if (activeCount >= config.orchestrator.maxConcurrency) {
       return;
     }
@@ -143,7 +157,7 @@ export function startOrchestrator(
         store.updateTaskStatus(task.id, "failed");
         store.addEvent(run.id, "error", `Self-improve rejected: ${validation.reason}`);
         store.releaseLease(lease.id);
-        activeCount--;
+        decrementActiveCount();
         return;
       }
       // Mount TurboClaw source as /project AND override workspace to point there
@@ -408,7 +422,7 @@ export function startOrchestrator(
           // Cleanup container
           await containerManager.cleanup(container.containerId);
           activeContainers.delete(run.id);
-          activeCount--;
+          decrementActiveCount();
 
           logger.info(`Run ${run.id} finished: exit ${exitCode}`);
         })
@@ -418,14 +432,14 @@ export function startOrchestrator(
           store.updateTaskStatus(task.id, "failed");
           store.releaseLease(lease.id);
           activeContainers.delete(run.id);
-          activeCount--;
+          decrementActiveCount();
         });
     } catch (err) {
       logger.error(`Failed to spawn container for task ${task.id}:`, err);
       store.finishRun(run.id, "failed", -1);
       store.updateTaskStatus(task.id, "failed");
       store.releaseLease(lease.id);
-      activeCount--;
+      decrementActiveCount();
     }
   }
 
@@ -492,6 +506,29 @@ export function startOrchestrator(
         }
 
         store.releaseLease(lease.id);
+
+        // Mark the task as failed to prevent zombie "running" state
+        const expiredTask = store.getTask(lease.task_id);
+        if (expiredTask && expiredTask.status === "running") {
+          if (expiredTask.retry_count < expiredTask.max_retries) {
+            store.incrementRetryCount(lease.task_id);
+            store.updateTaskStatus(lease.task_id, "queued");
+            logger.info(`Lease expired for task ${lease.task_id} — requeueing (retry ${expiredTask.retry_count + 1}/${expiredTask.max_retries})`);
+          } else {
+            store.updateTaskStatus(lease.task_id, "failed");
+            logger.warn(`Lease expired for task ${lease.task_id} — marking failed (retries exhausted)`);
+          }
+        }
+
+        // Kill the orphaned container if we're tracking it
+        const containerId = activeContainers.get(lease.run_id);
+        if (containerId) {
+          containerManager.kill(containerId).catch(() => {});
+          containerManager.cleanup(containerId).catch(() => {});
+          activeContainers.delete(lease.run_id);
+          decrementActiveCount();
+        }
+
         store.createAlert("lease_expired", `Lease expired for task ${lease.task_id} (worker: ${lease.worker})`, lease.task_id);
         logger.warn(`Lease ${lease.id} expired for task ${lease.task_id}`);
       }

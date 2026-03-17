@@ -417,31 +417,37 @@ export function createStore(db: Database): Store {
     },
 
     claimNextTask(worker, leaseDurationSec) {
-      const task = stmts.claimNextTask.get();
-      if (!task) return null;
+      const txn = db.transaction(() => {
+        const task = stmts.claimNextTask.get();
+        if (!task) return null;
 
-      const runId = newId();
-      const run = stmts.insertRun.get(runId, task.id)!;
+        const runId = newId();
+        const run = stmts.insertRun.get(runId, task.id)!;
 
-      const leaseId = newId();
-      const expiresAt = Math.floor(Date.now() / 1000) + leaseDurationSec;
-      const lease = stmts.insertLease.get(leaseId, task.id, run.id, worker, expiresAt)!;
+        const leaseId = newId();
+        const expiresAt = Math.floor(Date.now() / 1000) + leaseDurationSec;
+        const lease = stmts.insertLease.get(leaseId, task.id, run.id, worker, expiresAt)!;
 
-      return { task, run, lease };
+        return { task, run, lease };
+      });
+      return txn();
     },
 
     claimTask(taskId, worker, leaseDurationSec) {
-      const task = stmts.claimTaskById.get(taskId);
-      if (!task) return null;
+      const txn = db.transaction(() => {
+        const task = stmts.claimTaskById.get(taskId);
+        if (!task) return null;
 
-      const runId = newId();
-      const run = stmts.insertRun.get(runId, task.id)!;
+        const runId = newId();
+        const run = stmts.insertRun.get(runId, task.id)!;
 
-      const leaseId = newId();
-      const expiresAt = Math.floor(Date.now() / 1000) + leaseDurationSec;
-      const lease = stmts.insertLease.get(leaseId, task.id, run.id, worker, expiresAt)!;
+        const leaseId = newId();
+        const expiresAt = Math.floor(Date.now() / 1000) + leaseDurationSec;
+        const lease = stmts.insertLease.get(leaseId, task.id, run.id, worker, expiresAt)!;
 
-      return { task, run, lease };
+        return { task, run, lease };
+      });
+      return txn();
     },
 
     cancelTask(id) {
