@@ -68,6 +68,6 @@ describe("selfImprovePreamble", () => {
     const preamble = selfImprovePreamble("task-456");
     expect(preamble).toContain("turboclaw/improve/task-456");
     expect(preamble).toContain(".env");
-    expect(preamble).toContain("never commit to main");
+    expect(preamble).toContain("pre-commit");
   });
 });

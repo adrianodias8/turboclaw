@@ -244,6 +244,23 @@ export function startOrchestrator(
     const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
     prompt = `${completionProtocol(task.id, apiUrl)}${prompt}`;
 
+    // Enforce prompt size budget — truncate if too large for model context
+    const MAX_PROMPT_CHARS = 180000; // ~45K tokens, leaves room for agent output
+    if (prompt.length > MAX_PROMPT_CHARS) {
+      logger.warn(`Prompt for task ${task.id} exceeds budget (${prompt.length} chars) — truncating`);
+      // Preserve the completion protocol (outermost) and task description (innermost)
+      // Truncate middle context layers
+      const taskDesc = task.description ?? task.title;
+      const protocol = completionProtocol(task.id, apiUrl);
+      const availableForContext = MAX_PROMPT_CHARS - protocol.length - taskDesc.length - 100;
+      if (availableForContext > 0) {
+        const middleContext = prompt.slice(protocol.length, prompt.length - taskDesc.length);
+        prompt = protocol + middleContext.slice(0, availableForContext) + "\n\n---\n\n" + taskDesc;
+      } else {
+        prompt = protocol + taskDesc;
+      }
+    }
+
     // Pre-dispatch security scan — alert if prompt contains potential secrets
     const secretsFound = scanForSecrets(task.description ?? task.title);
     if (secretsFound.length > 0) {
@@ -377,6 +394,9 @@ export function startOrchestrator(
                     const current = existing.find(i => i.id === instinct.id)!;
                     current.confidence = Math.min(0.95, current.confidence + 0.1);
                     current.evidence.push(`Task ${task.id}: ${task.title}`);
+                    if (current.evidence.length > 20) {
+                      current.evidence = current.evidence.slice(-20);
+                    }
                     saveInstinct(memoryVaultPath, current);
                   } else {
                     saveInstinct(memoryVaultPath, instinct);

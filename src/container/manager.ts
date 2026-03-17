@@ -19,6 +19,8 @@ export function createContainerManager(
   store: Store,
   config: ContainerConfig = DEFAULT_CONTAINER_CONFIG
 ): ContainerManager {
+  let networkReady = false;
+
   async function runDocker(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const proc = Bun.spawn(["docker", ...args], {
       stdout: "pipe",
@@ -42,6 +44,15 @@ export function createContainerManager(
     },
 
     async spawn(opts) {
+      if (!networkReady) {
+        const { exitCode } = await runDocker(["network", "inspect", config.network]);
+        if (exitCode !== 0) {
+          logger.info(`Creating Docker network: ${config.network}`);
+          await runDocker(["network", "create", config.network]);
+        }
+        networkReady = true;
+      }
+
       const containerName = `turboclaw-${opts.taskId.slice(0, 8)}-${opts.runId.slice(0, 8)}`;
 
       const dockerArgs: string[] = [
@@ -148,6 +159,9 @@ export function createContainerManager(
       }
 
       const containerId = stdout.slice(0, 12);
+      if (!/^[a-f0-9]{12}$/.test(containerId)) {
+        throw new Error(`Invalid container ID from docker run: "${stdout.slice(0, 40)}"`);
+      }
       logger.info(`Container started: ${containerId}`);
 
       return {
@@ -224,8 +238,11 @@ export function createContainerManager(
     },
 
     async cleanup(containerId) {
-      logger.info(`Removing container: ${containerId}`);
-      await runDocker(["rm", "-f", containerId]);
+      try {
+        await runDocker(["rm", "-f", containerId]);
+      } catch (err) {
+        logger.warn(`Failed to remove container ${containerId}:`, err);
+      }
     },
   };
 }

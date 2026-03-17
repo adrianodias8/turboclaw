@@ -1,5 +1,5 @@
 import { join } from "path";
-import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { logger } from "../logger";
 
 export interface Instinct {
@@ -231,6 +231,69 @@ export function extractInstincts(
   }
 
   return instincts;
+}
+
+/**
+ * Decay instincts that haven't been used recently and prune low-confidence ones.
+ * - Reduces confidence by 0.05 for instincts not updated in the last 7 days
+ * - Deletes instincts with confidence below 0.1
+ * - Caps evidence array at 20 entries
+ */
+export function decayInstincts(vaultPath: string): { decayed: number; pruned: number } {
+  const all = listInstincts(vaultPath);
+  const dir = instinctsDir(vaultPath);
+  const now = Date.now();
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  let decayed = 0;
+  let pruned = 0;
+
+  for (const instinct of all) {
+    const filePath = join(dir, `${instinct.id}.md`);
+    let modified = false;
+
+    // Check file modification time to determine "last used"
+    try {
+      const stat = Bun.file(filePath);
+      const mtime = stat.lastModified;
+      if (now - mtime > sevenDaysMs) {
+        instinct.confidence -= 0.05;
+        modified = true;
+        decayed++;
+      }
+    } catch {
+      // If we can't stat, apply decay anyway
+      instinct.confidence -= 0.05;
+      modified = true;
+      decayed++;
+    }
+
+    // Cap evidence array at 20 entries
+    if (instinct.evidence.length > 20) {
+      instinct.evidence = instinct.evidence.slice(-20);
+      modified = true;
+    }
+
+    // Delete if confidence too low
+    if (instinct.confidence < 0.1) {
+      try {
+        unlinkSync(filePath);
+        pruned++;
+      } catch {
+        // File may already be gone
+      }
+      continue;
+    }
+
+    if (modified) {
+      saveInstinct(vaultPath, instinct);
+    }
+  }
+
+  if (decayed > 0 || pruned > 0) {
+    logger.info(`Instinct decay: ${decayed} decayed, ${pruned} pruned`);
+  }
+
+  return { decayed, pruned };
 }
 
 /**
