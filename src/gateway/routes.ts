@@ -205,6 +205,23 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       return json({ ok: true });
     }
 
+    // Alerts
+    if (method === "GET" && pathname === "/alerts") {
+      const ack = url.searchParams.get("acknowledged");
+      const alerts = store.listAlerts({
+        acknowledged: ack === "false" ? false : undefined,
+      });
+      return json(alerts);
+    }
+
+    // Acknowledge alert
+    const alertAckMatch = pathname.match(/^\/alerts\/(\d+)\/acknowledge$/);
+    if (method === "POST" && alertAckMatch?.[1]) {
+      const alertId = parseInt(alertAckMatch[1], 10);
+      store.acknowledgeAlert(alertId);
+      return json({ ok: true });
+    }
+
     // Experiments (autoresearch)
     if (method === "GET" && pathname === "/experiments/sessions") {
       return json(store.listExperimentSessions());
