@@ -378,7 +378,7 @@ export function startOrchestrator(
 
             // Auto-restart: if a self-improve task completed, check if git HEAD
             // changed from boot time (any new commits on any branch = restart)
-            if (task.agent_role === "self-improve" && !restartRequested && onRestart && bootHead) {
+            if (task.agent_role === "self-improve" && !restartRequested && onRestart && bootHead && !config.autoresearch.enabled) {
               try {
                 const result = Bun.spawnSync(["git", "rev-parse", "HEAD"]);
                 const currentHead = new TextDecoder().decode(result.stdout).trim();

@@ -19,6 +19,8 @@ import type {
   RunStatus,
   EventKind,
   AlertKind,
+  ExperimentStatus,
+  Experiment,
 } from "./types";
 
 export interface Store {
@@ -111,6 +113,24 @@ export interface Store {
   addChatMessage(jid: string, role: "user" | "assistant", content: string, taskId?: string | null): ChatMessage;
   getRecentChatMessages(jid: string, limit?: number): ChatMessage[];
   getChatMessageForTask(taskId: string): ChatMessage | null;
+
+  // Experiments (autoresearch)
+  recordExperiment(input: {
+    sessionId: string;
+    commitHash: string;
+    parentHash: string | null;
+    testsPassed: number;
+    testsFailed: number;
+    testsTotal: number;
+    testDurationMs: number | null;
+    experimentDurationMs: number | null;
+    status: ExperimentStatus;
+    description: string;
+    diffStat: string | null;
+    taskId: string | null;
+  }): Experiment;
+  listExperiments(sessionId: string): Experiment[];
+  listExperimentSessions(): Array<{ session_id: string; count: number; keeps: number; started_at: number; latest_at: number }>;
 }
 
 export function createStore(db: Database): Store {
@@ -308,6 +328,18 @@ export function createStore(db: Database): Store {
     ),
     chatMessageForTask: db.prepare<ChatMessage, [string]>(
       "SELECT * FROM chat_messages WHERE task_id = ? AND role = 'user' LIMIT 1"
+    ),
+
+    // Experiments
+    insertExperiment: db.prepare<Experiment, [string, string, string | null, number, number, number, number | null, number | null, string, string, string | null, string | null]>(
+      `INSERT INTO experiments (session_id, commit_hash, parent_hash, tests_passed, tests_failed, tests_total, test_duration_ms, experiment_duration_ms, status, description, diff_stat, task_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`
+    ),
+    listExperiments: db.prepare<Experiment, [string]>(
+      "SELECT * FROM experiments WHERE session_id = ? ORDER BY id ASC"
+    ),
+    listExperimentSessions: db.prepare<{ session_id: string; count: number; keeps: number; started_at: number; latest_at: number }, []>(
+      `SELECT session_id, COUNT(*) as count, SUM(CASE WHEN status = 'keep' THEN 1 ELSE 0 END) as keeps, MIN(created_at) as started_at, MAX(created_at) as latest_at FROM experiments GROUP BY session_id ORDER BY latest_at DESC`
     ),
   };
 
@@ -622,6 +654,24 @@ export function createStore(db: Database): Store {
 
     getChatMessageForTask(taskId) {
       return stmts.chatMessageForTask.get(taskId) ?? null;
+    },
+
+    // Experiments (autoresearch)
+    recordExperiment(input) {
+      return stmts.insertExperiment.get(
+        input.sessionId, input.commitHash, input.parentHash,
+        input.testsPassed, input.testsFailed, input.testsTotal,
+        input.testDurationMs, input.experimentDurationMs,
+        input.status, input.description, input.diffStat, input.taskId
+      )!;
+    },
+
+    listExperiments(sessionId) {
+      return stmts.listExperiments.all(sessionId);
+    },
+
+    listExperimentSessions() {
+      return stmts.listExperimentSessions.all();
     },
   };
 }

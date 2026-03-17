@@ -169,6 +169,16 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       return json(artifacts);
     }
 
+    // Experiments (autoresearch)
+    if (method === "GET" && pathname === "/experiments/sessions") {
+      return json(store.listExperimentSessions());
+    }
+
+    const experimentsMatch = pathname.match(/^\/experiments\/([^/]+)$/);
+    if (method === "GET" && experimentsMatch?.[1]) {
+      return json(store.listExperiments(experimentsMatch[1]));
+    }
+
     return error("not found", 404);
   };
 }

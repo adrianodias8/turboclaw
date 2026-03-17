@@ -41,6 +41,12 @@ export interface TurboClawConfig {
     maxPerTask: number;
     registries: ("clawhub" | "n-skills")[];
   };
+  autoresearch: {
+    enabled: boolean;
+    timeBudgetMs: number;
+    maxExperiments: number; // 0 = unlimited
+    programPath: string;
+  };
   dbPath: string;
 }
 
@@ -75,6 +81,12 @@ const DEFAULT_CONFIG: Omit<TurboClawConfig, "home" | "dbPath"> = {
     maxPerTask: 5,
     registries: ["clawhub", "n-skills"],
   },
+  autoresearch: {
+    enabled: false,
+    timeBudgetMs: 600000,
+    maxExperiments: 0,
+    programPath: "docker/skills/self-improve/PROGRAM.md",
+  },
 };
 
 export function loadConfig(): TurboClawConfig {
@@ -106,6 +118,7 @@ export function loadConfig(): TurboClawConfig {
     whatsapp: { ...DEFAULT_CONFIG.whatsapp, ...(fileConfig.whatsapp as Record<string, unknown> ?? {}) },
     memory: { ...DEFAULT_CONFIG.memory, ...(fileConfig.memory as Record<string, unknown> ?? {}) },
     skills: { ...DEFAULT_CONFIG.skills, ...(fileConfig.skills as Record<string, unknown> ?? {}) },
+    autoresearch: { ...DEFAULT_CONFIG.autoresearch, ...(fileConfig.autoresearch as Record<string, unknown> ?? {}) },
     agent: (fileConfig.agent as TurboClawConfig["agent"]) ?? undefined,
     workspaceRoot: (fileConfig.workspaceRoot as string) ?? undefined,
   } as TurboClawConfig;

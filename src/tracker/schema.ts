@@ -136,6 +136,27 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_jid ON chat_messages(jid);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_task_id ON chat_messages(task_id);
+
+CREATE TABLE IF NOT EXISTS experiments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  commit_hash TEXT NOT NULL,
+  parent_hash TEXT,
+  tests_passed INTEGER NOT NULL DEFAULT 0,
+  tests_failed INTEGER NOT NULL DEFAULT 0,
+  tests_total INTEGER NOT NULL DEFAULT 0,
+  test_duration_ms INTEGER,
+  experiment_duration_ms INTEGER,
+  status TEXT NOT NULL DEFAULT 'discard',
+  description TEXT NOT NULL DEFAULT '',
+  diff_stat TEXT,
+  task_id TEXT,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch('now')),
+  FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_experiments_session ON experiments(session_id);
+CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
 `;
 
 /**

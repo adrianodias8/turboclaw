@@ -141,3 +141,22 @@ export interface CreateCronInput {
   /** Pre-computed next_run_at for one-shot scheduled tasks */
   nextRunAt?: number;
 }
+
+export type ExperimentStatus = "keep" | "discard" | "crash" | "regression";
+
+export interface Experiment {
+  id: number; // auto-increment
+  session_id: string;
+  commit_hash: string;
+  parent_hash: string | null;
+  tests_passed: number;
+  tests_failed: number;
+  tests_total: number;
+  test_duration_ms: number | null;
+  experiment_duration_ms: number | null;
+  status: ExperimentStatus;
+  description: string;
+  diff_stat: string | null;
+  task_id: string | null;
+  created_at: number;
+}
