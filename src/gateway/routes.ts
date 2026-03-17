@@ -1,5 +1,5 @@
 import type { Store } from "../tracker/store";
-import type { CreateTaskInput, CreatePipelineInput, TaskStatus } from "../tracker/types";
+import type { CreateTaskInput, CreatePipelineInput, CreateCronInput, TaskStatus } from "../tracker/types";
 import type { GatewayOptions } from "./server";
 import { logger } from "../logger";
 
@@ -167,6 +167,59 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
         runId: runId ?? undefined,
       });
       return json(artifacts);
+    }
+
+    // Crons
+    if (method === "GET" && pathname === "/crons") {
+      return json(store.listCrons());
+    }
+
+    if (method === "POST" && pathname === "/crons") {
+      const body = await parseBody<{ name?: string; schedule?: string; taskTemplate?: unknown; pipelineId?: string }>(req);
+      if (!body?.name || !body.schedule || !body.taskTemplate) {
+        return error("name, schedule, and taskTemplate are required");
+      }
+      const input: CreateCronInput = {
+        name: body.name,
+        schedule: body.schedule,
+        taskTemplate: body.taskTemplate as CreateCronInput["taskTemplate"],
+      };
+      const cron = store.createCron(input);
+      return json(cron, 201);
+    }
+
+    // Toggle cron enabled/disabled
+    const cronToggleMatch = pathname.match(/^\/crons\/([^/]+)\/toggle$/);
+    if (method === "POST" && cronToggleMatch?.[1]) {
+      const cron = store.toggleCron(cronToggleMatch[1]);
+      if (!cron) return error("cron not found", 404);
+      return json(cron);
+    }
+
+    // Delete cron
+    const cronDeleteMatch = pathname.match(/^\/crons\/([^/]+)$/);
+    if (method === "DELETE" && cronDeleteMatch?.[1]) {
+      const existing = store.getCron(cronDeleteMatch[1]);
+      if (!existing) return error("cron not found", 404);
+      store.deleteCron(cronDeleteMatch[1]);
+      return json({ ok: true });
+    }
+
+    // Alerts
+    if (method === "GET" && pathname === "/alerts") {
+      const ack = url.searchParams.get("acknowledged");
+      const alerts = store.listAlerts({
+        acknowledged: ack === "false" ? false : undefined,
+      });
+      return json(alerts);
+    }
+
+    // Acknowledge alert
+    const alertAckMatch = pathname.match(/^\/alerts\/(\d+)\/acknowledge$/);
+    if (method === "POST" && alertAckMatch?.[1]) {
+      const alertId = parseInt(alertAckMatch[1], 10);
+      store.acknowledgeAlert(alertId);
+      return json({ ok: true });
     }
 
     // Experiments (autoresearch)

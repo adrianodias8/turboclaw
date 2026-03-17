@@ -99,6 +99,7 @@ export interface Store {
   getDueCrons(): Cron[];
   updateCronLastRun(id: string, lastRunAt: number, nextRunAt: number): void;
   updateCronEnabled(id: string, enabled: boolean): void;
+  toggleCron(id: string): Cron | null;
   deleteCron(id: string): void;
 
   // Alerts
@@ -614,6 +615,14 @@ export function createStore(db: Database): Store {
 
     updateCronEnabled(id, enabled) {
       stmts.updateCronEnabled.run(enabled ? 1 : 0, id);
+    },
+
+    toggleCron(id) {
+      const cron = stmts.getCron.get(id);
+      if (!cron) return null;
+      const newEnabled = cron.enabled ? 0 : 1;
+      stmts.updateCronEnabled.run(newEnabled, id);
+      return stmts.getCron.get(id) ?? null;
     },
 
     deleteCron(id) {
