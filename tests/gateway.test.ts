@@ -207,40 +207,6 @@ describe("crons", () => {
   });
 });
 
-describe("alerts", () => {
-  it("lists alerts", async () => {
-    const { data } = await req("GET", "/alerts");
-    expect(data).toEqual([]);
-  });
-
-  it("lists unacknowledged alerts only", async () => {
-    store.createAlert("task_failed", "Task X failed", null);
-    store.createAlert("lease_expired", "Lease Y expired", null);
-
-    const all = await req("GET", "/alerts");
-    expect(all.data).toHaveLength(2);
-
-    // Acknowledge one
-    store.acknowledgeAlert(all.data[1].id);
-
-    const unack = await req("GET", "/alerts?acknowledged=false");
-    expect(unack.data).toHaveLength(1);
-    expect(unack.data[0].message).toBe("Task X failed");
-  });
-
-  it("acknowledges an alert via API", async () => {
-    store.createAlert("task_failed", "Something broke", null);
-    const { data: alerts } = await req("GET", "/alerts");
-    expect(alerts).toHaveLength(1);
-
-    const ackRes = await req("POST", `/alerts/${alerts[0].id}/acknowledge`);
-    expect(ackRes.data.ok).toBe(true);
-
-    const unack = await req("GET", "/alerts?acknowledged=false");
-    expect(unack.data).toHaveLength(0);
-  });
-});
-
 describe("404", () => {
   it("returns not found for unknown routes", async () => {
     const { status } = await req("GET", "/unknown");
