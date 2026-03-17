@@ -39,7 +39,10 @@ export function createContainerManager(
       const { exitCode } = await runDocker(["network", "inspect", config.network]);
       if (exitCode !== 0) {
         logger.info(`Creating Docker network: ${config.network}`);
-        await runDocker(["network", "create", config.network]);
+        const result = await runDocker(["network", "create", config.network]);
+        if (result.exitCode !== 0) {
+          throw new Error(`Failed to create Docker network "${config.network}": ${result.stderr}`);
+        }
       }
     },
 
@@ -48,7 +51,10 @@ export function createContainerManager(
         const { exitCode } = await runDocker(["network", "inspect", config.network]);
         if (exitCode !== 0) {
           logger.info(`Creating Docker network: ${config.network}`);
-          await runDocker(["network", "create", config.network]);
+          const result = await runDocker(["network", "create", config.network]);
+          if (result.exitCode !== 0) {
+            throw new Error(`Failed to create Docker network "${config.network}": ${result.stderr}`);
+          }
         }
         networkReady = true;
       }
@@ -84,6 +90,16 @@ export function createContainerManager(
       const hostHome = process.env.HOME ?? "/root";
       if (opts.credentialPaths) {
         for (const credPath of opts.credentialPaths) {
+          // Validate credential path before mounting
+          if (!credPath.startsWith("/")) {
+            logger.warn(`Skipping credential path (not absolute): ${credPath}`);
+            continue;
+          }
+          if (!existsSync(credPath)) {
+            logger.warn(`Skipping credential path (does not exist): ${credPath}`);
+            continue;
+          }
+
           const containerPath = remapHomePath(credPath, hostHome);
 
           // For opencode config dir: rewrite localhost URLs to host.docker.internal
