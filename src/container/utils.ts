@@ -19,6 +19,6 @@ export function remapHomePath(hostPath: string, hostHome: string, containerHome:
  */
 export function rewriteLocalhostUrls(text: string): string {
   return text
-    .replace(/http:\/\/127\.0\.0\.1:/g, "http://host.docker.internal:")
-    .replace(/http:\/\/localhost:/g, "http://host.docker.internal:");
+    .replace(/https?:\/\/127\.0\.0\.1:/g, (match) => match.replace(/127\.0\.0\.1/, "host.docker.internal"))
+    .replace(/https?:\/\/localhost:/g, (match) => match.replace(/localhost/, "host.docker.internal"));
 }

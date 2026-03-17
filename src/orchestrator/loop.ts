@@ -446,11 +446,12 @@ export function startOrchestrator(
 
           logger.info(`Run ${run.id} finished: exit ${exitCode}`);
         })
-        .catch((err) => {
+        .catch(async (err) => {
           logger.error(`Error streaming logs for run ${run.id}:`, err);
           store.finishRun(run.id, "failed", -1);
           store.updateTaskStatus(task.id, "failed");
           store.releaseLease(lease.id);
+          await containerManager.cleanup(container.containerId);
           activeContainers.delete(run.id);
           decrementActiveCount();
         });

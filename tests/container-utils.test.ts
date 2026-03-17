@@ -53,8 +53,13 @@ describe("rewriteLocalhostUrls", () => {
     expect(rewriteLocalhostUrls(input)).toBe(input);
   });
 
-  it("does not rewrite https URLs", () => {
+  it("rewrites https localhost URLs", () => {
     const input = "https://localhost:443/secure";
-    expect(rewriteLocalhostUrls(input)).toBe(input);
+    expect(rewriteLocalhostUrls(input)).toBe("https://host.docker.internal:443/secure");
+  });
+
+  it("rewrites https 127.0.0.1 URLs", () => {
+    const input = "https://127.0.0.1:11434/api";
+    expect(rewriteLocalhostUrls(input)).toBe("https://host.docker.internal:11434/api");
   });
 });

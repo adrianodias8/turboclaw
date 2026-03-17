@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 
-const HOME = process.env.HOME ?? "~";
+const HOME = process.env.HOME ?? "/root";
 
 /**
  * Resolves credential file paths that need to be mounted into worker containers

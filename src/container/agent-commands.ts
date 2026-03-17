@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 
-const HOME = process.env.HOME ?? "~";
+const HOME = process.env.HOME ?? "/root";
 
 export type AgentType = "opencode" | "claude-code" | "codex";
 
