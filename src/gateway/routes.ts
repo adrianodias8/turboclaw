@@ -5,6 +5,7 @@ import { logger } from "../logger";
 import { listAgentMemories, addAgentMemory, replaceAgentMemory, removeAgentMemory, getAgentMemoryBudget } from "../memory/agent-memory";
 import { createSkill, patchSkill, deleteSkill, listLocalSkills } from "../skills/manager";
 import { guardSkillContent } from "../skills/guard";
+import { createCheckpointManager } from "../container/checkpoint";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -338,6 +339,53 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
         const result = deleteSkill(skillsDir, skillName);
         return result.ok ? json({ ok: true }) : error(result.error!, 404);
       }
+    }
+
+    // Checkpoints
+    if (method === "GET" && pathname === "/checkpoints") {
+      const workspace = url.searchParams.get("workspace") ?? opts?.workspaceRoot;
+      if (!workspace) return error("workspace query param required", 400);
+      const checkpointsBase = opts?.checkpointsBase;
+      if (!checkpointsBase) return error("checkpoints not configured", 500);
+      const mgr = createCheckpointManager(workspace, checkpointsBase);
+      return json(mgr.list());
+    }
+
+    if (method === "POST" && pathname === "/checkpoints/restore") {
+      const body = await parseBody<{ workspace?: string; hash?: string }>(req);
+      const workspace = body?.workspace ?? opts?.workspaceRoot;
+      if (!workspace || !body?.hash) {
+        return error("workspace and hash are required", 400);
+      }
+      const checkpointsBase = opts?.checkpointsBase;
+      if (!checkpointsBase) return error("checkpoints not configured", 500);
+      const mgr = createCheckpointManager(workspace, checkpointsBase);
+      const result = mgr.restore(body.hash);
+      return json(result, result.ok ? 200 : 400);
+    }
+
+    if (method === "GET" && pathname === "/checkpoints/diff") {
+      const workspace = url.searchParams.get("workspace") ?? opts?.workspaceRoot;
+      const hash = url.searchParams.get("hash");
+      if (!workspace || !hash) {
+        return error("workspace and hash query params required", 400);
+      }
+      const checkpointsBase = opts?.checkpointsBase;
+      if (!checkpointsBase) return error("checkpoints not configured", 500);
+      const mgr = createCheckpointManager(workspace, checkpointsBase);
+      return json({ diff: mgr.diff(hash) });
+    }
+
+    // Session search (FTS5)
+    if (method === "GET" && pathname === "/search") {
+      const q = url.searchParams.get("q");
+      if (!q) {
+        return error("q query parameter is required");
+      }
+      const limitParam = url.searchParams.get("limit");
+      const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+      const results = store.searchEvents(q, limit);
+      return json(results);
     }
 
     return error("not found", 404);

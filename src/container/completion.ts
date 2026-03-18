@@ -86,6 +86,18 @@ curl -s -X PATCH "${apiUrl}/skills/skill-name" -H 'Content-Type: application/jso
 - Include YAML frontmatter with name and description
 - Keep skills focused — one skill per task type
 
+## Session Search
+
+You can search past task transcripts to recall prior work:
+\`\`\`bash
+curl -s "${apiUrl}/search?q=keyword1+keyword2&limit=5"
+\`\`\`
+
+Use this when:
+- The task references something done previously
+- You need to find how a similar problem was solved before
+- You want to check if a specific change was already made
+
 ---
 `;
 }

@@ -144,6 +144,15 @@ export interface CreateCronInput {
 
 export type ExperimentStatus = "keep" | "discard" | "crash" | "regression";
 
+export interface EventSearchResult {
+  taskId: string;
+  taskTitle: string;
+  runId: string;
+  matchCount: number;
+  snippets: string[];
+  taskCreatedAt: number;
+}
+
 export interface Experiment {
   id: number; // auto-increment
   session_id: string;

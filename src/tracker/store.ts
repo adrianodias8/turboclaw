@@ -21,6 +21,7 @@ import type {
   AlertKind,
   ExperimentStatus,
   Experiment,
+  EventSearchResult,
 } from "./types";
 
 export interface Store {
@@ -132,6 +133,10 @@ export interface Store {
   }): Experiment;
   listExperiments(sessionId: string): Experiment[];
   listExperimentSessions(): Array<{ session_id: string; count: number; keeps: number; started_at: number; latest_at: number }>;
+
+  // Session search (FTS5)
+  searchEvents(query: string, limit?: number): EventSearchResult[];
+  rebuildFtsIndex(): void;
 }
 
 export function createStore(db: Database): Store {
@@ -144,6 +149,13 @@ export function createStore(db: Database): Store {
     } catch {
       // Column already exists — expected on subsequent runs
     }
+  }
+
+  // Rebuild FTS index to ensure existing events are indexed
+  try {
+    db.exec("INSERT INTO events_fts(events_fts) VALUES('rebuild')");
+  } catch {
+    // FTS table may not exist yet on very old DBs — safe to ignore
   }
 
   // Prepared statements
@@ -687,6 +699,73 @@ export function createStore(db: Database): Store {
 
     listExperimentSessions() {
       return stmts.listExperimentSessions.all();
+    },
+
+    // Session search (FTS5)
+    searchEvents(query: string, limit = 20): EventSearchResult[] {
+      try {
+        const rows = db.prepare<
+          { run_id: string; payload: string; snip: string; task_id: string; task_title: string; task_created_at: number },
+          [string, number]
+        >(
+          `SELECT e.run_id, e.payload, snippet(events_fts, 0, '>>>', '<<<', '...', 32) as snip,
+                  r.task_id, t.title as task_title, t.created_at as task_created_at
+           FROM events_fts
+           JOIN events e ON events_fts.rowid = e.id
+           JOIN runs r ON e.run_id = r.id
+           JOIN tasks t ON r.task_id = t.id
+           WHERE events_fts MATCH ?
+           ORDER BY rank
+           LIMIT ?`
+        ).all(query, limit * 5);
+
+        // Group by task
+        const grouped = new Map<string, {
+          taskId: string;
+          taskTitle: string;
+          runId: string;
+          matchCount: number;
+          snippets: string[];
+          taskCreatedAt: number;
+        }>();
+
+        for (const row of rows) {
+          const existing = grouped.get(row.task_id);
+          if (existing) {
+            existing.matchCount++;
+            if (existing.snippets.length < 5) {
+              const truncated = row.snip.length > 200 ? row.snip.slice(0, 200) + "..." : row.snip;
+              existing.snippets.push(truncated);
+            }
+          } else {
+            const truncated = row.snip.length > 200 ? row.snip.slice(0, 200) + "..." : row.snip;
+            grouped.set(row.task_id, {
+              taskId: row.task_id,
+              taskTitle: row.task_title,
+              runId: row.run_id,
+              matchCount: 1,
+              snippets: [truncated],
+              taskCreatedAt: row.task_created_at,
+            });
+          }
+        }
+
+        // Sort by match count descending, take up to limit
+        return Array.from(grouped.values())
+          .sort((a, b) => b.matchCount - a.matchCount)
+          .slice(0, limit);
+      } catch {
+        // FTS table doesn't exist yet — return empty
+        return [];
+      }
+    },
+
+    rebuildFtsIndex(): void {
+      try {
+        db.exec("INSERT INTO events_fts(events_fts) VALUES('rebuild')");
+      } catch {
+        // FTS table doesn't exist — safe to ignore
+      }
     },
   };
 }

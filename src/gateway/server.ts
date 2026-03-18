@@ -8,6 +8,8 @@ export interface GatewayOptions {
   requestRestart?: () => void;
   vaultPath?: string;
   skillsDir?: string;
+  checkpointsBase?: string;
+  workspaceRoot?: string;
 }
 
 export function startGateway(store: Store, config: TurboClawConfig, opts?: GatewayOptions) {

@@ -157,6 +157,27 @@ CREATE TABLE IF NOT EXISTS experiments (
 
 CREATE INDEX IF NOT EXISTS idx_experiments_session ON experiments(session_id);
 CREATE INDEX IF NOT EXISTS idx_experiments_status ON experiments(status);
+
+-- FTS5 full-text index on event payloads for cross-task search
+CREATE VIRTUAL TABLE IF NOT EXISTS events_fts USING fts5(
+  payload,
+  content=events,
+  content_rowid=id
+);
+
+-- Triggers to keep FTS index in sync
+CREATE TRIGGER IF NOT EXISTS events_ai AFTER INSERT ON events BEGIN
+  INSERT INTO events_fts(rowid, payload) VALUES (new.id, new.payload);
+END;
+
+CREATE TRIGGER IF NOT EXISTS events_ad AFTER DELETE ON events BEGIN
+  INSERT INTO events_fts(events_fts, rowid, payload) VALUES('delete', old.id, old.payload);
+END;
+
+CREATE TRIGGER IF NOT EXISTS events_au AFTER UPDATE ON events BEGIN
+  INSERT INTO events_fts(events_fts, rowid, payload) VALUES('delete', old.id, old.payload);
+  INSERT INTO events_fts(events_fts, rowid, payload) VALUES (new.id, new.payload);
+END;
 `;
 
 /**

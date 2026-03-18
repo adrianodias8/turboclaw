@@ -403,6 +403,20 @@ export function startOrchestrator(
       }
     }
 
+    // Checkpoint workspace before task runs
+    try {
+      const { createCheckpointManager } = await import("../container/checkpoint");
+      const checkpointsBase = join(config.home, "checkpoints");
+      const mgr = createCheckpointManager(workspacePath, checkpointsBase);
+      const cp = mgr.snapshot(task.id, `Pre-task: ${task.title}`);
+      if (cp) {
+        store.addEvent(run.id, "info", `Checkpoint created: ${cp.hash.slice(0, 8)}`);
+      }
+      mgr.prune(50);
+    } catch (err) {
+      logger.warn(`Checkpoint failed for task ${task.id}:`, err);
+    }
+
     try {
       const container = await containerManager.spawn({
         taskId: task.id,
