@@ -327,6 +327,22 @@ export function startOrchestrator(
       envVars.OPENCODE_MODEL = resolvedModel;
     }
 
+    // Smart model routing: use cheap model for simple tasks
+    if (config.routing?.enabled && resolvedAgentType === "opencode") {
+      const { routeTask, DEFAULT_ROUTING_CONFIG } = await import("./routing");
+      const routingConfig = {
+        ...DEFAULT_ROUTING_CONFIG,
+        ...config.routing,
+        enabled: true,
+      };
+      const route = routeTask(task.title, task.description, routingConfig);
+      if (route.model) {
+        envVars.OPENCODE_MODEL = route.model;
+        store.addEvent(run.id, "info", `Model routing: ${route.reason} → ${route.model}`);
+        logger.info(`Task ${task.id} routed to ${route.model} (${route.reason})`);
+      }
+    }
+
     // For OpenCode, resolve the model string from provider config
     // For opencode-config, strip --model entirely — let opencode use its own config
     if (resolvedAgentType === "opencode" && config.provider?.type === "opencode-config") {

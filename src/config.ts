@@ -47,6 +47,13 @@ export interface TurboClawConfig {
     maxExperiments: number; // 0 = unlimited
     programPath: string;
   };
+  routing?: {
+    enabled: boolean;
+    cheapModel: string;
+    maxChars?: number;
+    maxWords?: number;
+    complexityKeywords?: string[];
+  };
   dbPath: string;
 }
 
