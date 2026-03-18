@@ -111,15 +111,17 @@ src/
       use-memory.ts — polls memory vault notes by tier (core/daily/weekly)
 
   tracker/
-    schema.ts       — DDL as a string constant, applied on boot
-    store.ts        — all SQLite queries (prepared statements)
-    types.ts        — Pipeline, Task, Run, Lease, Event, Gate, Artifact, Cron, Alert
+    schema.ts       — DDL as a string constant, applied on boot; FTS5 virtual table for event search
+    store.ts        — all SQLite queries (prepared statements); searchEvents(), getInsights()
+    types.ts        — Pipeline, Task, Run, Lease, Event, Gate, Artifact, Cron, Alert, EventSearchResult, InsightsResult
     pipelines.ts    — pipeline stage advancement logic
+    insights.ts     — token usage parsing from agent output, cost estimation per model
 
   orchestrator/
-    loop.ts         — main poll loop (tick, tickCrons, tickExpiredLeases)
+    loop.ts         — main poll loop (tick, tickCrons, tickExpiredLeases); prompt assembly, checkpoint, token tracking
     cron-parser.ts  — 5-field cron expression parser, nextRunAt computation
     strategies.ts   — scheduling: fifo, priority, round-robin
+    routing.ts      — smart model routing (complexity evaluation, cheap vs strong model selection)
     types.ts        — OrchestratorConfig, SchedulingStrategy
 
   container/
@@ -128,32 +130,39 @@ src/
     agent-commands.ts — resolves agent type to CLI command, env vars, credential paths
     credentials.ts  — OAuth/subscription credential path resolution
     self-improve.ts — self-improve mode validation, env setup, preamble
-    completion.ts   — completion protocol preamble (injected into every prompt)
+    completion.ts   — completion protocol preamble (memory, skills, search instructions)
+    checkpoint.ts   — shadow git snapshots for workspace rollback
     utils.ts        — pure utility functions (remapHomePath, rewriteLocalhostUrls)
     types.ts        — ContainerConfig, SpawnOptions
 
   gateway/
-    server.ts       — Bun.serve() setup, accepts restart callback
-    routes.ts       — route handlers (functions, not classes)
+    server.ts       — Bun.serve() setup, accepts restart callback + vaultPath, skillsDir, checkpointsBase
+    routes.ts       — route handlers (functions, not classes); memory, skills, checkpoint, search, insights endpoints
     types.ts        — request/response shapes
+
+  security/
+    injection-scanner.ts — prompt injection detection (5 threat categories + invisible unicode)
 
   skills/
     discovery.ts    — auto-discover skills from registries based on task prompt
     registry.ts     — ClawhHub + n-skills registry clients
     cache.ts        — local filesystem skill cache
+    manager.ts      — agent-created skill CRUD (create, patch, delete, list, find)
+    guard.ts        — security scanning for skill content (injection detection + unicode stripping)
     types.ts        — SkillManifest, RegistryConfig, DiscoveryResult
 
   memory/
     vault.ts        — open vault, list notes, read/write markdown files (dirs: inbox, notes, projects, tasks, agents, templates, core, weekly)
-    search.ts       — full-text search, tag lookup, wikilink graph traversal
+    search.ts       — full-text search, tag lookup, wikilink graph traversal (excludes core + agent notes)
     writer.ts       — create notes from templates (fleeting, permanent, task-log, core) + updateNoteContent()
-    context.ts      — buildCoreContext() (always injected) + buildContext() (search-based)
+    context.ts      — buildCoreContext() + buildAgentMemoryContext() + buildContext() (search-based)
+    agent-memory.ts — agent-writable memory CRUD via REST API (add, replace, remove, budget)
     auto-memory.ts  — auto-capture task output with daily + date tags
     librarian.ts    — inbox processing, link discovery, orphan detection, weekly compilation, expired memory pruning
     scheduler.ts    — periodic librarian runner with retention config (dailyRetentionDays, weeklyRetentionWeeks)
     instincts.ts    — pattern learning system (trigger/action pairs with confidence decay + evidence tracking)
-    templates.ts    — note template strings with frontmatter (fleeting, permanent, task-log, moc, core, weekly)
-    types.ts        — MemoryNote, VaultConfig, SearchResult; NoteType includes "core" | "weekly-summary"
+    templates.ts    — note template strings with frontmatter (fleeting, permanent, task-log, moc, core, weekly, agent)
+    types.ts        — MemoryNote, VaultConfig, SearchResult; NoteType includes "core" | "weekly-summary" | "agent"
 
   autoresearch/
     loop.ts         — autonomous research loop (time-budgeted experiment runner)
@@ -200,7 +209,7 @@ src/
 
 ## Multi-Agent Support
 
-TurboClaw supports three agent backends, configured via `config.agent`:
+TurboClaw supports two agent backends, configured via `config.agent`:
 
 | Agent | Command | Auth | Credential Path |
 |-------|---------|------|-----------------|
@@ -246,18 +255,23 @@ Alerts are emitted automatically by the orchestrator:
 - `task_failed` — when a task fails after all retries exhausted
 - `lease_expired` — when a lease expires without being released
 - `whatsapp_disconnect` — when the WhatsApp bridge disconnects
+- `prompt_truncated` — when prompt exceeds 180K char budget and layers are dropped
+- `security_warning` — when task prompt may contain secrets
 
 Alerts surface in the TUI Alerts screen (color-coded by kind) and can be acknowledged individually or in bulk. On WhatsApp reconnection, previous `whatsapp_disconnect` alerts are automatically acknowledged.
 
 ## Skills System
 
-Two-tier approach: **seed skills** baked into the Docker image + **auto-discovery** at task dispatch time.
+Three-tier approach: **seed skills** baked into the Docker image + **auto-discovery** at task dispatch time + **agent-created skills** from experience.
 
 ### Tier 1: Seed Skills (Docker build time)
 A base set from `docker/skills-manifest.json` is baked into the worker image. Includes `turboclaw-dev`, `git-workflow`, `task-completion`, `web-research`. Avoids cold-start latency.
 
 ### Tier 2: Auto-Discovery (at task dispatch)
 The orchestrator runs `src/skills/discovery.ts` before spawning a container. It extracts keywords from the task prompt, queries ClawhHub and n-skills registries, caches results locally, and mounts matching skills into the container. Controlled via `config.skills` (`autoDiscover`, `maxPerTask`, `registries`).
+
+### Tier 3: Agent-Created Skills (self-learning)
+Agents can create and patch reusable SKILL.md files via the REST API (`POST /skills`, `PATCH /skills/:name`). Skills are stored at `~/.turboclaw/skills/` and automatically mounted into subsequent containers. All agent-written skill content is scanned for prompt injection before acceptance (`src/skills/guard.ts`).
 
 ### What NOT to do with skills
 - **Do NOT create a custom skills framework.** Use OpenCode's native skill system.
@@ -276,34 +290,42 @@ Restart can also be triggered manually:
 - **API:** `POST /restart`
 - **TUI:** Ctrl+C and relaunch via `scripts/run.sh`
 
-## Memory System — Three-Tier Zettelkasten (`src/memory/`)
+## Memory System — Four-Tier Zettelkasten (`src/memory/`)
 
-TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/memory/`, organized in three tiers. Pure filesystem — no Obsidian app dependency.
+TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/memory/`, organized in four tiers. Pure filesystem — no Obsidian app dependency.
 
-### Three Memory Tiers
+### Four Memory Tiers
 
 | Tier | Dir | Injected | Lifecycle | Editable |
 |------|-----|----------|-----------|----------|
-| **Core** | `core/` | Always (every prompt) | Permanent, user-managed | Full CRUD via TUI |
-| **Daily** | `tasks/` | Search-based | Auto-captured on task completion, pruned after N days | View/delete via TUI |
-| **Weekly** | `weekly/` | Search-based | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
+| **Core** | `core/` | Always (priority 90) | Permanent, user-managed | Full CRUD via TUI |
+| **Agent** | `agents/` | Always (priority 85) | Agent-managed via REST API, 4KB budget | Agents add/replace/remove via API |
+| **Daily** | `tasks/` | Search-based (priority 40) | Auto-captured on task completion, pruned after N days | View/delete via TUI |
+| **Weekly** | `weekly/` | Search-based (priority 40) | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
 
 ### Prompt Injection Order
 ```
-# Core Memory              ← always injected (from core/)
+# Completion Protocol      ← self-assessment + API instructions (priority 99)
+# Core Memory              ← always injected (from core/, priority 90)
+# Agent Memory             ← agent-managed insights (from agents/, priority 85)
+# Self-Improve Preamble    ← if self-improve task (priority 80)
+# Coding Rules             ← common + language-specific (priority 70)
+# Role Skill               ← agent role-specific skill (priority 60)
+# Learned Instincts        ← pattern matches (priority 50)
+# Relevant Memory Notes    ← search-based (from tasks/ + weekly/, priority 40)
+# Reflection Nudge         ← every 5th task (priority 35)
+# Recent Conversation      ← chat history, WhatsApp only (priority 30)
 ---
-# Relevant Memory Notes    ← search-based (from tasks/ + weekly/)
----
-# Recent Conversation      ← chat history (WhatsApp tasks only)
----
-<actual task prompt>
+<actual task prompt>        ← (priority 100, always kept)
 ```
 
 ### Memory Lifecycle
 - **Core notes** are created during onboarding (name, role, context, preferences + 4 base agent behavior notes) or via TUI Memory screen `[4]`. Core notes are always injected and excluded from search-based context to prevent duplication.
+- **Agent notes** are created by agents via `POST /memory` from inside containers. Bounded by a 4KB budget. Agents save durable insights — environment quirks, effective patterns, project conventions. Agent notes are excluded from search to prevent duplicate injection.
 - **Daily notes** are auto-generated when tasks complete, tagged with `daily-YYYY-MM-DD`. Unhelpful responses (refusals, "done", "I don't know") are filtered out and not saved.
 - **Weekly summaries** are compiled by the librarian from the previous week's daily notes
 - **Pruning** runs on the librarian interval: daily notes older than `dailyRetentionDays`, weekly notes older than `weeklyRetentionWeeks * 7` days
+- **Reflection nudge** injected every 5th task to encourage agents to persist useful knowledge
 
 ## Configuration
 
@@ -325,6 +347,7 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
   skills: { autoDiscover: true, maxPerTask: 5, registries: ["clawhub", "n-skills"] },
   autoresearch: { enabled: false, timeBudgetMs: 600000, maxExperiments: 0, programPath: "docker/skills/self-improve/PROGRAM.md" },
+  routing: { enabled: false, cheapModel: "ollama/qwen3-coder", maxChars: 160, maxWords: 28, complexityKeywords: [...] },
 }
 ```
 
@@ -375,6 +398,17 @@ All responses are JSON. Errors return `{ "error": "message" }` with appropriate 
 | POST | /restart | — | Gracefully restart TurboClaw (exit 75) |
 | GET | /experiments/sessions | — | List autoresearch sessions |
 | GET | /experiments/:sessionId | — | List experiments in a session |
+| POST | /memory | `{ action, title, content?, source? }` | Agent memory: add/replace/remove |
+| GET | /memory | — | List agent memories + budget |
+| POST | /skills | `{ name, content, category? }` | Create agent skill (with injection scan) |
+| PATCH | /skills/:name | `{ oldText, newText }` | Patch existing skill |
+| DELETE | /skills/:name | — | Delete skill |
+| GET | /skills | — | List local agent-created skills |
+| GET | /search?q=&limit= | — | FTS5 search across past task events |
+| GET | /insights?days= | — | Usage analytics (tokens, cost, model breakdown) |
+| GET | /checkpoints?workspace= | — | List workspace checkpoints |
+| POST | /checkpoints/restore | `{ workspace, hash }` | Restore workspace to checkpoint |
+| GET | /checkpoints/diff?workspace=&hash= | — | Diff checkpoint vs current |
 
 ## Autoresearch System (`src/autoresearch/`)
 
@@ -396,6 +430,56 @@ Pattern learning layer on top of the memory vault. Instincts are trigger/action 
 - Built into prompt context via `buildInstinctContext()` alongside core memory
 - Created/updated automatically from task outcomes
 
+## Checkpoint System (`src/container/checkpoint.ts`)
+
+Shadow git snapshots of workspaces before each task run. Enables rollback when agents make mistakes.
+
+- Stored at `~/.turboclaw/checkpoints/{sha256(workspace)[:16]}/`
+- Uses `GIT_DIR` + `GIT_WORK_TREE` env vars — no `.git` in the user's workspace
+- Auto-snapshot before every container spawn
+- `restore()` takes a safety snapshot first, then `git checkout <hash> -- .`
+- `prune()` caps at 50 checkpoints, uses `--soft` reset to avoid workspace modification
+- Excludes `.git`, `node_modules`, `.env`, `__pycache__`, `venv`, `.turboclaw`, `bun.lockb`
+- Max 50,000 files guard before snapshotting
+
+## Smart Model Routing (`src/orchestrator/routing.ts`)
+
+Routes simple tasks to cheaper models, reserves strong models for complex work. Conservative by design.
+
+- Disabled by default — opt-in via `config.routing.enabled`
+- Only applies to OpenCode agents (Claude Code uses fixed model)
+- Complexity checks: text length, word count, keyword presence, code blocks, URLs, multi-line
+- Keywords like "debug", "implement", "refactor", "docker" always use strong model
+- Sets `OPENCODE_MODEL` env var before agent command resolution
+
+## Session Search (`src/tracker/store.ts` + FTS5)
+
+FTS5 full-text search across all past task event payloads. Agents can search from inside containers.
+
+- Virtual table `events_fts` with auto-sync triggers on insert/update/delete
+- `searchEvents(query)` joins through runs to tasks, groups results with snippets
+- FTS index rebuilt on startup to cover pre-existing events
+- Exposed via `GET /search?q=keywords`
+
+## Usage Insights (`src/tracker/insights.ts`)
+
+Token tracking and cost estimation per task run.
+
+- Parses token counts from agent stdout (Input/Output/Total tokens patterns)
+- Estimates cost using per-model pricing (Anthropic, OpenAI, Ollama at $0)
+- Stored on runs table: `tokens_in`, `tokens_out`, `estimated_cost_usd`, `model_used`
+- Aggregated via `store.getInsights(days)`: totals, by-model, by-day, by-status, avg duration
+- Exposed via `GET /insights?days=7`
+
+## Prompt Injection Detection (`src/security/injection-scanner.ts`)
+
+Scans agent-written content (memories, skills) for injection attacks before persistence.
+
+- 5 threat categories: prompt injection, role hijacking, exfiltration, deception, destructive ops
+- Invisible Unicode detection and stripping (zero-width chars, direction marks)
+- Used by `src/skills/guard.ts` to gate skill creation
+- Used by memory endpoints to validate agent-written content
+
 ## What NOT to Build
 
 - No web UI (TUI is the primary interface; API for programmatic access)
@@ -411,26 +495,33 @@ Pattern learning layer on top of the memory vault. Instincts are trigger/action 
 ## Testing Strategy
 
 ```bash
-bun test                              # all tests (219 passing across 19 files)
-bun test tests/tracker.test.ts        # tracker CRUD
-bun test tests/crons.test.ts          # cron CRUD
-bun test tests/alerts.test.ts         # alert CRUD
-bun test tests/cron-parser.test.ts    # cron expression parsing
-bun test tests/pipelines.test.ts      # pipeline stage advancement
-bun test tests/memory.test.ts         # memory vault operations
-bun test tests/memory-tiers.test.ts   # core/daily/weekly memory tiers
-bun test tests/credentials.test.ts    # credential path resolution
-bun test tests/self-improve.test.ts   # self-improve validation
-bun test tests/orchestrator.test.ts   # scheduling strategies
-bun test tests/gateway.test.ts        # API routes
-bun test tests/container.test.ts      # container manager
-bun test tests/agent-commands.test.ts # agent command resolution
-bun test tests/auto-memory.test.ts    # auto-capture task output
-bun test tests/chat-history.test.ts   # WhatsApp chat history
-bun test tests/container-utils.test.ts # container utility functions
-bun test tests/skills.test.ts         # skill discovery + cache
-bun test tests/time-parser.test.ts    # time reference parsing
-bun test tests/autoresearch.test.ts  # autoresearch loop + ledger
+bun test                                # all tests (406 passing across 26 files)
+bun test tests/tracker.test.ts          # tracker CRUD
+bun test tests/crons.test.ts            # cron CRUD
+bun test tests/alerts.test.ts           # alert CRUD
+bun test tests/cron-parser.test.ts      # cron expression parsing
+bun test tests/pipelines.test.ts        # pipeline stage advancement
+bun test tests/memory.test.ts           # memory vault operations
+bun test tests/memory-tiers.test.ts     # core/daily/weekly memory tiers
+bun test tests/credentials.test.ts      # credential path resolution
+bun test tests/self-improve.test.ts     # self-improve validation
+bun test tests/orchestrator.test.ts     # scheduling strategies
+bun test tests/gateway.test.ts          # API routes
+bun test tests/container.test.ts        # container manager
+bun test tests/agent-commands.test.ts   # agent command resolution
+bun test tests/auto-memory.test.ts      # auto-capture task output
+bun test tests/chat-history.test.ts     # WhatsApp chat history
+bun test tests/container-utils.test.ts  # container utility functions
+bun test tests/skills.test.ts           # skill discovery + cache
+bun test tests/time-parser.test.ts      # time reference parsing
+bun test tests/autoresearch.test.ts     # autoresearch loop + ledger
+bun test tests/injection-scanner.test.ts # prompt injection detection
+bun test tests/agent-memory.test.ts     # agent-writable memory CRUD + budget
+bun test tests/skills-manager.test.ts   # skill create/patch/delete + guard
+bun test tests/checkpoint.test.ts       # workspace snapshot/restore/prune
+bun test tests/session-search.test.ts   # FTS5 cross-task search
+bun test tests/routing.test.ts          # smart model routing
+bun test tests/insights.test.ts         # token tracking + cost estimation
 ```
 
 ## Deployment Target

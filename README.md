@@ -31,11 +31,17 @@ bun run src/index.ts
 - **Retries** — automatic retry on failure with configurable limits
 - **Cron jobs** — recurring tasks on standard cron schedules (`*/30 * * * *`)
 - **Alerts** — automatic alerts on task failure, lease expiry, WhatsApp disconnect
-- **Tiered memory** — three-tier system (core/daily/weekly) with auto-pruning and TUI management
+- **Tiered memory** — four-tier system (core/agent/daily/weekly) with auto-pruning and TUI management
+- **Self-learning** — agents save durable insights to memory and create reusable skills from experience
 - **Pipelines** — multi-stage workflows with gates between stages
 - **Self-improvement** — mount TurboClaw's own source into a container and let agents improve it
 - **Autoresearch** — autonomous experiment runner with time-budgeted loops and test metrics
 - **Instincts** — pattern learning from task outcomes with confidence decay
+- **Checkpoints** — shadow git snapshots before each task for workspace rollback
+- **Session search** — FTS5 full-text search across past task transcripts
+- **Smart routing** — route simple tasks to cheap models, complex tasks to strong models
+- **Usage insights** — token tracking and cost estimation per model
+- **Security** — prompt injection detection for agent-written content
 - **WhatsApp** — send a message from your phone, get notified when it's done
 
 ## Architecture

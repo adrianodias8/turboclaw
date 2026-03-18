@@ -107,3 +107,14 @@ These are the gaps between "code exists" and "you can actually use it":
 - [x] Memory retention config + env var overrides
 - [x] Core memory always-inject into task prompts
 - [x] WhatsApp notifier fix (dedicated queries for recently-completed tasks + dedup)
+- [x] Prompt injection detection (5 threat categories + invisible unicode)
+- [x] Agent-writable memory (REST API for agents to save durable insights, 4KB budget)
+- [x] Memory reflection nudges (every 5th task prompts agents to persist knowledge)
+- [x] Agent skill creation (agents create/patch SKILL.md files from experience)
+- [x] Skill security guard (injection scanning before accepting agent-written skills)
+- [x] Checkpoint & rollback (shadow git snapshots before each task, REST API for restore)
+- [x] FTS5 session search (full-text search across past task event transcripts)
+- [x] Smart model routing (route simple tasks to cheap models, complex to strong)
+- [x] Usage insights & analytics (token tracking, cost estimation, per-model aggregation)
+- [x] Completion protocol (memory, skills, search instructions for agents in containers)
+- [x] Four-tier memory system (core/agent/daily/weekly with priority-based injection)
