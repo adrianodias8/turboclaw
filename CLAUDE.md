@@ -522,7 +522,41 @@ bun test tests/checkpoint.test.ts       # workspace snapshot/restore/prune
 bun test tests/session-search.test.ts   # FTS5 cross-task search
 bun test tests/routing.test.ts          # smart model routing
 bun test tests/insights.test.ts         # token tracking + cost estimation
+bun test tests/config-validation.test.ts # config env var validation + NaN rejection
+bun test tests/sse-disconnect.test.ts    # SSE stream cancel/disconnect cleanup
+bun test tests/orchestrator-shutdown.test.ts # orchestrator graceful shutdown + restart
 ```
+
+## Known Issues & Recent Fixes
+
+### Fixed (2026-03-18)
+
+| Issue | Location | Fix |
+|-------|----------|-----|
+| `parseInt()` without NaN validation on env vars — config silently breaks | `config.ts`, `gateway/routes.ts` | Added `Number.isNaN()` + range checks; introduced `safeParseInt()` helper in gateway |
+| SSE stream poll loop continues after client disconnects (memory leak) | `gateway/routes.ts` | Added `cancel()` handler on ReadableStream + `cancelled` flag to stop polling |
+| Credential path traversal — mounting arbitrary host files into containers | `container/manager.ts` | Added path traversal detection (`..`), resolved path comparison, and home-directory scoping |
+| Concurrency race condition — `activeCount` could exceed `maxConcurrency` | `orchestrator/loop.ts` | Cross-check in-memory `activeCount` with DB `getActiveRuns()` count before claiming |
+| FTS5 index rebuild errors swallowed silently | `tracker/store.ts` | Now logs warning via logger instead of empty catch |
+| Docker worker image uses `@latest` tags (non-reproducible builds) | `docker/Dockerfile.opencode` | Pinned `opencode-ai` and `opencode-browser` to specific versions |
+
+### Known Remaining Issues
+
+| Severity | Issue | Impact |
+|----------|-------|--------|
+| Medium | `streamLogs` has 24-hour hardcoded wall-clock timeout | Long-running tasks may timeout even if actively producing output |
+| Medium | No rate limiting on gateway API endpoints | DoS vulnerability in exposed deployments |
+| Medium | Memory vault `listNotes()` walks entire directory synchronously | Scalability issue at 1000+ daily notes |
+| Low | No graceful DB close on TUI exit | Potential WAL corruption on unclean shutdown |
+| Low | No log rotation in headless/Docker mode | Logs grow unbounded in long-running deployments |
+| Low | WhatsApp bridge lacks heartbeat/keep-alive mechanism | Silent disconnects may go undetected |
+
+### Test Coverage Gaps (Future Work)
+
+- WhatsApp bridge reconnection scenarios (515/428 errors, timeout)
+- TUI component interaction tests
+- Concurrent memory vault access under load
+- Memory vault I/O errors and corrupted frontmatter handling
 
 ## Deployment Target
 

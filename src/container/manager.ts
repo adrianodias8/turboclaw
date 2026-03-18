@@ -114,6 +114,17 @@ export function createContainerManager(
             logger.warn(`Skipping credential path (not absolute): ${credPath}`);
             continue;
           }
+          // Prevent path traversal attacks — resolve and verify the path stays within home
+          const resolved = join(credPath);
+          if (resolved.includes("..") || resolved !== credPath) {
+            logger.warn(`Skipping credential path (path traversal detected): ${credPath}`);
+            continue;
+          }
+          // Only allow paths under the user's home directory or /tmp
+          if (!resolved.startsWith(hostHome) && !resolved.startsWith("/tmp")) {
+            logger.warn(`Skipping credential path (outside home directory): ${credPath}`);
+            continue;
+          }
           if (!existsSync(credPath)) {
             logger.warn(`Skipping credential path (does not exist): ${credPath}`);
             continue;

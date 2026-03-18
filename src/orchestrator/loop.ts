@@ -68,7 +68,11 @@ export function startOrchestrator(
   }
 
   async function tickInner() {
-    if (activeCount >= config.orchestrator.maxConcurrency) {
+    // Use both in-memory count AND DB running count to avoid race conditions
+    // where activeCount hasn't been decremented yet after a container finishes
+    const dbRunningCount = store.getActiveRuns().length;
+    const effectiveActive = Math.max(activeCount, dbRunningCount);
+    if (effectiveActive >= config.orchestrator.maxConcurrency) {
       return;
     }
 

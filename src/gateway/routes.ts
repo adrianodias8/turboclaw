@@ -26,6 +26,12 @@ async function parseBody<T>(req: Request): Promise<T | null> {
   }
 }
 
+function safeParseInt(value: string | null, fallback?: number): number | undefined {
+  if (value === null) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? fallback : parsed;
+}
+
 
 export function createRoutes(store: Store, opts?: GatewayOptions) {
   return async function handleRequest(req: Request): Promise<Response> {
@@ -100,7 +106,7 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       const tasks = store.listTasks({
         status: status as TaskStatus | undefined ?? undefined,
         stage: stage ?? undefined,
-        limit: limit ? parseInt(limit, 10) : undefined,
+        limit: safeParseInt(limit),
         cursor: cursor ?? undefined,
       });
       return json(tasks);
@@ -131,9 +137,15 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       if (!run) return error("run not found", 404);
 
       let lastId = 0;
+      let cancelled = false;
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async pull(controller) {
+          if (cancelled) {
+            controller.close();
+            return;
+          }
+
           const events = store.listEvents(runId, lastId);
           for (const event of events) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -150,6 +162,9 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
 
           // Poll interval
           await new Promise((r) => setTimeout(r, 1000));
+        },
+        cancel() {
+          cancelled = true;
         },
       });
 
@@ -221,7 +236,8 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     // Acknowledge alert
     const alertAckMatch = pathname.match(/^\/alerts\/(\d+)\/acknowledge$/);
     if (method === "POST" && alertAckMatch?.[1]) {
-      const alertId = parseInt(alertAckMatch[1], 10);
+      const alertId = safeParseInt(alertAckMatch[1]);
+      if (alertId === undefined) return error("invalid alert id", 400);
       store.acknowledgeAlert(alertId);
       return json({ ok: true });
     }
@@ -379,7 +395,7 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     // Usage insights
     if (method === "GET" && pathname === "/insights") {
       const daysParam = url.searchParams.get("days");
-      const days = daysParam ? parseInt(daysParam, 10) : undefined;
+      const days = safeParseInt(daysParam);
       return json(store.getInsights(days));
     }
 
@@ -390,7 +406,7 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
         return error("q query parameter is required");
       }
       const limitParam = url.searchParams.get("limit");
-      const limit = limitParam ? parseInt(limitParam, 10) : undefined;
+      const limit = safeParseInt(limitParam);
       const results = store.searchEvents(q, limit);
       return json(results);
     }

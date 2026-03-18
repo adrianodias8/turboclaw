@@ -130,24 +130,36 @@ export function loadConfig(): TurboClawConfig {
     workspaceRoot: (fileConfig.workspaceRoot as string) ?? undefined,
   } as TurboClawConfig;
 
-  // Env var overrides
+  // Env var overrides — validate numeric values to prevent NaN propagation
   if (process.env.TURBOCLAW_GATEWAY_PORT) {
-    config.gateway.port = parseInt(process.env.TURBOCLAW_GATEWAY_PORT, 10);
+    const parsed = parseInt(process.env.TURBOCLAW_GATEWAY_PORT, 10);
+    if (!Number.isNaN(parsed) && parsed > 0 && parsed <= 65535) {
+      config.gateway.port = parsed;
+    }
   }
   if (process.env.TURBOCLAW_GATEWAY_HOST) {
     config.gateway.host = process.env.TURBOCLAW_GATEWAY_HOST;
   }
   if (process.env.TURBOCLAW_MAX_CONCURRENCY) {
-    config.orchestrator.maxConcurrency = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
+    const parsed = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      config.orchestrator.maxConcurrency = parsed;
+    }
   }
   if (process.env.TURBOCLAW_WORKSPACE_ROOT) {
     config.workspaceRoot = process.env.TURBOCLAW_WORKSPACE_ROOT;
   }
   if (process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS) {
-    config.memory.dailyRetentionDays = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);
+    const parsed = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      config.memory.dailyRetentionDays = parsed;
+    }
   }
   if (process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS) {
-    config.memory.weeklyRetentionWeeks = parseInt(process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS, 10);
+    const parsed = parseInt(process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      config.memory.weeklyRetentionWeeks = parsed;
+    }
   }
 
   return config;

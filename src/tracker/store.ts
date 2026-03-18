@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { SCHEMA, MIGRATIONS } from "./schema";
 import { newId } from "../ids";
+import { logger } from "../logger";
 import type {
   Task,
   Run,
@@ -159,8 +160,9 @@ export function createStore(db: Database): Store {
   // Rebuild FTS index to ensure existing events are indexed
   try {
     db.exec("INSERT INTO events_fts(events_fts) VALUES('rebuild')");
-  } catch {
-    // FTS table may not exist yet on very old DBs — safe to ignore
+  } catch (err) {
+    // FTS table may not exist yet on very old DBs — log for diagnostics
+    logger.warn("FTS5 index rebuild failed (search may return stale results):", err);
   }
 
   // Prepared statements
