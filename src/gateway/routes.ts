@@ -376,6 +376,13 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       return json({ diff: mgr.diff(hash) });
     }
 
+    // Usage insights
+    if (method === "GET" && pathname === "/insights") {
+      const daysParam = url.searchParams.get("days");
+      const days = daysParam ? parseInt(daysParam, 10) : undefined;
+      return json(store.getInsights(days));
+    }
+
     // Session search (FTS5)
     if (method === "GET" && pathname === "/search") {
       const q = url.searchParams.get("q");

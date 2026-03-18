@@ -22,6 +22,7 @@ import type {
   ExperimentStatus,
   Experiment,
   EventSearchResult,
+  InsightsResult,
 } from "./types";
 
 export interface Store {
@@ -137,6 +138,10 @@ export interface Store {
   // Session search (FTS5)
   searchEvents(query: string, limit?: number): EventSearchResult[];
   rebuildFtsIndex(): void;
+
+  // Usage insights
+  updateRunMetrics(runId: string, metrics: { tokensIn?: number; tokensOut?: number; estimatedCostUsd?: number; modelUsed?: string }): void;
+  getInsights(days?: number): InsightsResult;
 }
 
 export function createStore(db: Database): Store {
@@ -353,6 +358,59 @@ export function createStore(db: Database): Store {
     ),
     listExperimentSessions: db.prepare<{ session_id: string; count: number; keeps: number; started_at: number; latest_at: number }, []>(
       `SELECT session_id, COUNT(*) as count, SUM(CASE WHEN status = 'keep' THEN 1 ELSE 0 END) as keeps, MIN(created_at) as started_at, MAX(created_at) as latest_at FROM experiments GROUP BY session_id ORDER BY latest_at DESC`
+    ),
+
+    // Usage insights
+    insightsTotals: db.prepare<
+      { total_runs: number; total_tokens_in: number; total_tokens_out: number; total_cost_usd: number; avg_duration_sec: number },
+      [number]
+    >(
+      `SELECT
+        COUNT(*) as total_runs,
+        COALESCE(SUM(tokens_in), 0) as total_tokens_in,
+        COALESCE(SUM(tokens_out), 0) as total_tokens_out,
+        COALESCE(SUM(estimated_cost_usd), 0.0) as total_cost_usd,
+        COALESCE(AVG(CASE WHEN finished_at IS NOT NULL AND started_at IS NOT NULL THEN finished_at - started_at END), 0) as avg_duration_sec
+      FROM runs WHERE started_at >= ?`
+    ),
+    insightsTotalTasks: db.prepare<{ total_tasks: number }, [number]>(
+      `SELECT COUNT(DISTINCT task_id) as total_tasks FROM runs WHERE started_at >= ?`
+    ),
+    insightsByModel: db.prepare<
+      { model: string; runs: number; tokens_in: number; tokens_out: number; cost_usd: number },
+      [number]
+    >(
+      `SELECT
+        COALESCE(model_used, 'unknown') as model,
+        COUNT(*) as runs,
+        COALESCE(SUM(tokens_in), 0) as tokens_in,
+        COALESCE(SUM(tokens_out), 0) as tokens_out,
+        COALESCE(SUM(estimated_cost_usd), 0.0) as cost_usd
+      FROM runs WHERE started_at >= ?
+      GROUP BY model_used
+      ORDER BY runs DESC`
+    ),
+    insightsByDay: db.prepare<
+      { date: string; tasks: number; runs: number; tokens_in: number; tokens_out: number; cost_usd: number },
+      [number]
+    >(
+      `SELECT
+        date(started_at, 'unixepoch') as date,
+        COUNT(DISTINCT task_id) as tasks,
+        COUNT(*) as runs,
+        COALESCE(SUM(tokens_in), 0) as tokens_in,
+        COALESCE(SUM(tokens_out), 0) as tokens_out,
+        COALESCE(SUM(estimated_cost_usd), 0.0) as cost_usd
+      FROM runs WHERE started_at >= ?
+      GROUP BY date(started_at, 'unixepoch')
+      ORDER BY date DESC`
+    ),
+    insightsByStatus: db.prepare<{ status: string; count: number }, [number]>(
+      `SELECT t.status, COUNT(*) as count
+      FROM tasks t
+      JOIN runs r ON r.task_id = t.id
+      WHERE r.started_at >= ?
+      GROUP BY t.status`
     ),
   };
 
@@ -766,6 +824,70 @@ export function createStore(db: Database): Store {
       } catch {
         // FTS table doesn't exist — safe to ignore
       }
+    },
+
+    // Usage insights
+    updateRunMetrics(runId, metrics) {
+      const setClauses: string[] = [];
+      const params: (string | number)[] = [];
+
+      if (metrics.tokensIn !== undefined) {
+        setClauses.push("tokens_in = ?");
+        params.push(metrics.tokensIn);
+      }
+      if (metrics.tokensOut !== undefined) {
+        setClauses.push("tokens_out = ?");
+        params.push(metrics.tokensOut);
+      }
+      if (metrics.estimatedCostUsd !== undefined) {
+        setClauses.push("estimated_cost_usd = ?");
+        params.push(metrics.estimatedCostUsd);
+      }
+      if (metrics.modelUsed !== undefined) {
+        setClauses.push("model_used = ?");
+        params.push(metrics.modelUsed);
+      }
+
+      if (setClauses.length === 0) return;
+
+      params.push(runId);
+      const sql = `UPDATE runs SET ${setClauses.join(", ")} WHERE id = ?`;
+      db.prepare(sql).run(...params);
+    },
+
+    getInsights(days = 7) {
+      const sinceTs = Math.floor(Date.now() / 1000) - days * 86400;
+
+      const totals = stmts.insightsTotals.get(sinceTs)!;
+      const totalTasks = stmts.insightsTotalTasks.get(sinceTs)!;
+      const byModel = stmts.insightsByModel.all(sinceTs).map(r => ({
+        model: r.model,
+        runs: r.runs,
+        tokensIn: r.tokens_in,
+        tokensOut: r.tokens_out,
+        costUsd: r.cost_usd,
+      }));
+      const byDay = stmts.insightsByDay.all(sinceTs).map(r => ({
+        date: r.date,
+        tasks: r.tasks,
+        runs: r.runs,
+        tokensIn: r.tokens_in,
+        tokensOut: r.tokens_out,
+        costUsd: r.cost_usd,
+      }));
+      const byStatus = stmts.insightsByStatus.all(sinceTs);
+
+      return {
+        totalTasks: totalTasks.total_tasks,
+        totalRuns: totals.total_runs,
+        totalTokensIn: totals.total_tokens_in,
+        totalTokensOut: totals.total_tokens_out,
+        totalCostUsd: totals.total_cost_usd,
+        byModel,
+        byDay,
+        byStatus,
+        avgDurationSec: totals.avg_duration_sec,
+      };
     },
   };
 }

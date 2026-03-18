@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at INTEGER NOT NULL DEFAULT (unixepoch('now')),
   finished_at INTEGER,
   exit_code INTEGER,
+  tokens_in INTEGER DEFAULT 0,
+  tokens_out INTEGER DEFAULT 0,
+  estimated_cost_usd REAL DEFAULT 0.0,
+  model_used TEXT DEFAULT NULL,
   FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
@@ -189,4 +193,8 @@ export const MIGRATIONS = [
   "ALTER TABLE crons ADD COLUMN one_shot INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE tasks ADD COLUMN agent_override TEXT",
   "ALTER TABLE tasks ADD COLUMN model_override TEXT",
+  "ALTER TABLE runs ADD COLUMN tokens_in INTEGER DEFAULT 0",
+  "ALTER TABLE runs ADD COLUMN tokens_out INTEGER DEFAULT 0",
+  "ALTER TABLE runs ADD COLUMN estimated_cost_usd REAL DEFAULT 0.0",
+  "ALTER TABLE runs ADD COLUMN model_used TEXT DEFAULT NULL",
 ];

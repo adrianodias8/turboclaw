@@ -36,6 +36,10 @@ export interface Run {
   started_at: number;
   finished_at: number | null;
   exit_code: number | null;
+  tokens_in: number;
+  tokens_out: number;
+  estimated_cost_usd: number;
+  model_used: string | null;
 }
 
 export interface Lease {
@@ -151,6 +155,18 @@ export interface EventSearchResult {
   matchCount: number;
   snippets: string[];
   taskCreatedAt: number;
+}
+
+export interface InsightsResult {
+  totalTasks: number;
+  totalRuns: number;
+  totalTokensIn: number;
+  totalTokensOut: number;
+  totalCostUsd: number;
+  byModel: Array<{ model: string; runs: number; tokensIn: number; tokensOut: number; costUsd: number }>;
+  byDay: Array<{ date: string; tasks: number; runs: number; tokensIn: number; tokensOut: number; costUsd: number }>;
+  byStatus: Array<{ status: string; count: number }>;
+  avgDurationSec: number;
 }
 
 export interface Experiment {

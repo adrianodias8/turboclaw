@@ -477,6 +477,22 @@ export function startOrchestrator(
             const runEvents = store.listEvents(run.id);
             const taskOutput = runEvents.filter(e => e.kind === "stdout").map(e => e.payload).join("\n").trim();
 
+            // Track token usage and cost
+            try {
+              const { parseTokenUsage, estimateCost } = await import("../tracker/insights");
+              const metrics = parseTokenUsage(taskOutput);
+              const model = metrics.model ?? envVars.OPENCODE_MODEL ?? "unknown";
+              const cost = estimateCost(model, metrics.tokensIn, metrics.tokensOut);
+              store.updateRunMetrics(run.id, {
+                tokensIn: metrics.tokensIn,
+                tokensOut: metrics.tokensOut,
+                estimatedCostUsd: cost,
+                modelUsed: model,
+              });
+            } catch (err) {
+              logger.warn(`Token tracking failed for run ${run.id}:`, err);
+            }
+
             // Auto-memory: write task log to vault
             try {
               if (taskOutput) {
