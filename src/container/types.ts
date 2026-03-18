@@ -21,7 +21,7 @@ export interface SpawnOptions {
   providerType?: string; // for credential mounting
   credentialPaths?: string[]; // host paths to mount into container
   agentCommand?: string[]; // per-spawn override for agent CLI command
-  agentType?: "opencode" | "claude-code" | "codex";
+  agentType?: "opencode" | "claude-code";
   /** Discovered skill directory paths to mount into the container */
   skillPaths?: Array<{ name: string; hostDir: string }>;
   /** Gateway port for TURBOCLAW_API env var */

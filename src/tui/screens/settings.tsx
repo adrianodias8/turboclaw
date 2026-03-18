@@ -25,7 +25,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   "openai": "OpenAI",
   "chatgpt": "ChatGPT",
   "copilot": "Copilot",
-  "codex": "Codex",
+
   "custom": "Custom",
 };
 

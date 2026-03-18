@@ -8,7 +8,7 @@ Future vision and things to work on. Items roughly ordered by priority within ea
 
 These are the gaps between "code exists" and "you can actually use it":
 
-- [ ] **Build and test the Docker worker image** — `docker build` the Dockerfile.worker, verify OpenCode/Claude Code/Codex CLIs are actually installed and callable, fix any install script failures
+- [ ] **Build and test the Docker worker image** — `docker build` the Dockerfile.worker, verify OpenCode/Claude Code CLIs are actually installed and callable, fix any install script failures
 - [ ] **End-to-end task execution** — create a task via TUI, watch the orchestrator claim it, spawn a Docker container, stream logs back, see it complete in the dashboard
 - [ ] **WhatsApp bridge real-world test** — connect a real phone, verify QR scanning works in the TUI, send `/task` and `/status`, confirm notifications come back
 - [ ] **Docker Compose file** — single `docker compose up` that starts TurboClaw host + mounts Docker socket + creates network + persistent volume for DB and workspaces
@@ -18,11 +18,11 @@ These are the gaps between "code exists" and "you can actually use it":
 
 ## Agent Experience
 
-- [ ] **Agent-specific prompt templates** — Claude Code and Codex have different strengths; tailor the prompt wrapper per agent type (e.g., Claude Code gets more detailed tool permissions, Codex gets different context framing)
-- [ ] **Output parsing per agent** — Claude Code emits `stream-json`, Codex has its own output format, OpenCode has another. Normalize events from all three into the same tracker event stream.
+- [ ] **Agent-specific prompt templates** — Claude Code and OpenCode have different strengths; tailor the prompt wrapper per agent type (e.g., Claude Code gets more detailed tool permissions, OpenCode gets different context framing)
+- [ ] **Output parsing per agent** — Claude Code emits `stream-json`, OpenCode has another format. Normalize events from both into the same tracker event stream.
 - [ ] **Agent benchmarking mode** — run the same task with different agents, compare results (cost, time, quality). Store results as artifacts for comparison.
 - [ ] **Warm containers** — keep a pool of pre-warmed containers to reduce cold-start latency. Especially useful for Ollama where model loading is slow.
-- [ ] **Agent selection per task** — let individual tasks specify which agent to use, overriding the global default. Useful for "use Claude Code for this complex refactor but Codex for this quick script".
+- [ ] **Agent selection per task** — let individual tasks specify which agent to use, overriding the global default. Useful for "use Claude Code for this complex refactor but OpenCode for this quick script".
 
 ## Scheduling & Orchestration
 
@@ -94,7 +94,7 @@ These are the gaps between "code exists" and "you can actually use it":
 - [x] Memory system (Obsidian vault, search, context injection, librarian)
 - [x] Pipelines (multi-stage + gates + transitions)
 - [x] Self-improvement mode
-- [x] Multi-provider agents (OpenCode, Claude Code, Codex)
+- [x] Multi-provider agents (OpenCode, Claude Code)
 - [x] Cron engine (parser, scheduler, TUI screen)
 - [x] Alert system (auto-emit, TUI screen, acknowledge)
 - [x] WhatsApp bridge (Baileys, commands, notifications, QR in TUI)

@@ -22,7 +22,7 @@ export interface TurboClawConfig {
     baseUrl?: string;
     model?: string;
   } | null;
-  agent?: "opencode" | "claude-code" | "codex";
+  agent?: "opencode" | "claude-code";
   /** Host project directory to mount as the container workspace. Defaults to cwd. */
   workspaceRoot?: string;
   whatsapp: {

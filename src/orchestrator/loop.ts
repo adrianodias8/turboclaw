@@ -132,19 +132,17 @@ export function startOrchestrator(
           } else {
             envVars.CLAUDE_CODE_OAUTH_TOKEN = key;
           }
-          // OpenCode and Codex also need ANTHROPIC_API_KEY if using Anthropic provider
+          // OpenCode also needs ANTHROPIC_API_KEY if using Anthropic provider
           if (defaultAgent !== "claude-code" && key.startsWith("sk-ant-") && !key.startsWith("sk-ant-oat")) {
             envVars.ANTHROPIC_API_KEY = key;
           }
-        } else if (["openai", "chatgpt", "copilot", "codex", "custom"].includes(provType)) {
+        } else if (["openai", "chatgpt", "copilot", "custom"].includes(provType)) {
           envVars.OPENAI_API_KEY = key;
         }
 
         // Cross-agent compatibility: ensure the agent's expected env var is set
         if (defaultAgent === "claude-code" && !envVars.ANTHROPIC_API_KEY && !envVars.CLAUDE_CODE_OAUTH_TOKEN) {
           envVars.ANTHROPIC_API_KEY = key;
-        } else if (defaultAgent === "codex" && !envVars.OPENAI_API_KEY) {
-          envVars.OPENAI_API_KEY = key;
         }
       }
 
@@ -348,7 +346,7 @@ export function startOrchestrator(
 
     // Auto-discover skills from registries based on task prompt
     let skillPaths: Array<{ name: string; hostDir: string }> = [];
-    if (config.skills.autoDiscover && resolvedAgentType !== "codex") {
+    if (config.skills.autoDiscover) {
       try {
         const projectRoot = process.cwd();
         const taskPrompt = task.description ?? task.title;

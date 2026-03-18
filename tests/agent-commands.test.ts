@@ -21,12 +21,6 @@ describe("buildAgentCommand", () => {
     expect(cmd).not.toContain("{model}");
   });
 
-  it("returns codex command with {prompt} placeholder", () => {
-    const cmd = buildAgentCommand("codex");
-    expect(cmd).toContain("{prompt}");
-    expect(cmd[0]).toBe("codex");
-    expect(cmd).not.toContain("{model}");
-  });
 });
 
 describe("getAgentEnvVars", () => {
@@ -41,10 +35,6 @@ describe("getAgentEnvVars", () => {
     expect(vars.OPENCODE_BROWSER_BACKEND).toBeUndefined();
   });
 
-  it("returns empty object for codex", () => {
-    const vars = getAgentEnvVars("codex");
-    expect(Object.keys(vars)).toHaveLength(0);
-  });
 });
 
 describe("resolveOpenCodeModel", () => {
@@ -92,10 +82,6 @@ describe("resolveOpenCodeModel", () => {
   it("resolves claude-sub provider as anthropic", () => {
     expect(resolveOpenCodeModel({ type: "claude-sub" }))
       .toBe("anthropic/claude-sonnet-4-20250514");
-  });
-
-  it("resolves codex provider as openai", () => {
-    expect(resolveOpenCodeModel({ type: "codex" })).toBe("openai/gpt-4o");
   });
 
   it("resolves custom provider", () => {

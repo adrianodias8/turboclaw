@@ -48,13 +48,6 @@ export function resolveCredentialPaths(providerType: string): string[] {
       break;
     }
 
-    case "codex": {
-      // Codex stores credentials in ~/.codex/
-      const codexDir = join(HOME, ".codex");
-      if (existsSync(codexDir)) paths.push(codexDir);
-      break;
-    }
-
     case "opencode-config": {
       // Mount the entire opencode config — user's provider setup lives here
       const opencodeDir = join(HOME, ".config", "opencode");

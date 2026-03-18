@@ -9,7 +9,7 @@
 **Runtime:** Bun (latest)
 **Database:** Bun built-in SQLite (`bun:sqlite`)
 **Container runtime:** Docker (required)
-**Agent runtime:** OpenCode (default), Claude Code, Codex — configurable via `config.agent`
+**Agent runtime:** OpenCode (default), Claude Code — configurable via `config.agent`
 **Browser automation:** Not yet implemented (planned: opencode-browser or Playwright)
 
 ---
@@ -35,7 +35,7 @@ agent = executor                  (OpenCode in Docker)
 ```
 
 ### Our additions
-- Claude Code as the default agent runtime (OpenCode and Codex planned)
+- Claude Code as the default agent runtime (OpenCode also supported)
 - Three-tier memory system (core/daily/weekly) for persistent agent context
 - Bun-native everything (no Node.js, no npm at the host level; Node.js only inside worker containers for Claude Code CLI)
 
@@ -250,7 +250,7 @@ Manages Docker lifecycle for agent workers.
 **Container spawn flow:**
 1. Create workspace directory: `~/.turboclaw/workspaces/{task_id}/`
 2. Mount workspace + task context into container
-3. Run the configured agent CLI (OpenCode, Claude Code, or Codex) with the task prompt
+3. Run the configured agent CLI (OpenCode or Claude Code) with the task prompt
 4. Stream stdout/stderr back as events to tracker
 5. Collect artifacts from workspace on completion
 
@@ -304,7 +304,7 @@ WORKDIR /workspace
 CMD ["echo", "No command provided"]
 ```
 
-> **Note:** The current worker image only supports Claude Code. OpenCode and Codex support, browser automation, and the skills system are planned for future iterations (see Iteration Plan).
+> **Note:** The current worker image only supports Claude Code. OpenCode support, browser automation, and the skills system are planned for future iterations (see Iteration Plan).
 
 ### 4.5 Skills System (Planned)
 
@@ -458,7 +458,7 @@ The container manager passes provider credentials to workers via environment var
 - Orchestrator tuning (concurrency, poll interval, retry settings)
 - Scheduling strategy (FIFO / priority / round-robin)
 - Container settings (image tag, network, workspace dir)
-- Agent type selection (Claude Code / OpenCode / Codex)
+- Agent type selection (Claude Code / OpenCode)
 - Self-improvement toggle (mount own source into workers)
 
 ### 4.8 Memory Screen (`src/tui/screens/memory.tsx`)
@@ -846,7 +846,7 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 - [x] Container manager: spawn, stream output, collect artifacts
 - [x] Build script for worker image
 - [x] Add OpenCode agent support to Dockerfile
-- [x] Add Codex agent support to Dockerfile
+
 - [x] Browser automation (opencode-browser or Playwright)
 - [x] Skills system (seed skills + runtime discovery)
 
@@ -899,7 +899,7 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 |----------|-----------|
 | Bun over Node | Native SQLite, faster startup, TypeScript-first, Bun.serve() |
 | Bun SQLite over external DB | Zero dependencies, embedded, perfect for single-user |
-| OpenCode as default agent | Multi-provider support via host config; Claude Code and Codex also supported |
+| OpenCode as default agent | Multi-provider support via host config; Claude Code also supported |
 | Docker over Apple Container | Cross-platform, Hetzner-friendly, industry standard |
 | REST API over WebSocket | Simpler, SSE for streaming, easier to debug |
 | No "skills over features" contribution model | NanoClaw's PR-as-skills pattern is excluded; we accept normal code contributions |

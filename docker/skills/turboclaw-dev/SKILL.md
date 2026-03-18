@@ -260,7 +260,7 @@ Single file: `~/.turboclaw/config.json`
   orchestrator: { pollIntervalMs: 2000, maxConcurrency: 2, leaseDurationSec: 600, schedulingStrategy: "priority" },
   selfImprove: { enabled: false },
   provider: { type: "anthropic", apiKey: "...", model: "..." } | null,
-  agent: "opencode" | "claude-code" | "codex",
+  agent: "opencode" | "claude-code",
   workspaceRoot: "/path/to/project",
   whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },

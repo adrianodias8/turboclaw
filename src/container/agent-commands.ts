@@ -3,7 +3,7 @@ import { join } from "path";
 
 const HOME = process.env.HOME ?? "/root";
 
-export type AgentType = "opencode" | "claude-code" | "codex";
+export type AgentType = "opencode" | "claude-code";
 
 /**
  * Builds the CLI command array for the given agent type.
@@ -17,8 +17,6 @@ export function buildAgentCommand(agentType: AgentType): string[] {
         "claude", "-p", "{prompt}",
         "--dangerously-skip-permissions",
       ];
-    case "codex":
-      return ["codex", "exec", "--full-auto", "{prompt}"];
     case "opencode":
     default:
       return ["opencode", "run", "--model", "{model}", "{prompt}"];
@@ -34,8 +32,6 @@ export function getAgentEnvVars(agentType: AgentType): Record<string, string> {
       return {
         CLAUDE_CODE_DISABLE_NONINTERACTIVE_CHECK: "1",
       };
-    case "codex":
-      return {};
     case "opencode":
     default:
       return {
@@ -57,11 +53,6 @@ export function getAgentCredentialPaths(agentType: AgentType): string[] {
     case "claude-code": {
       const claudeDir = join(HOME, ".claude");
       if (existsSync(claudeDir)) paths.push(claudeDir);
-      break;
-    }
-    case "codex": {
-      const codexDir = join(HOME, ".codex");
-      if (existsSync(codexDir)) paths.push(codexDir);
       break;
     }
     case "opencode":
@@ -86,7 +77,6 @@ const PROVIDER_MODEL_DEFAULTS: Record<string, [string, string]> = {
   chatgpt: ["openai", "openai/gpt-4o"],
   ollama: ["ollama", "ollama/qwen3-coder"],
   copilot: ["copilot", "copilot/gpt-4o"],
-  codex: ["openai", "openai/gpt-4o"],
   custom: ["custom", "custom/default"],
 };
 

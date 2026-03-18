@@ -7,7 +7,7 @@
 
 Dockerized AI agent runner with multi-provider support. Control it via TUI, REST API, or WhatsApp.
 
-TurboClaw spawns ephemeral Docker containers to run AI coding agents (OpenCode, Claude Code, or Codex) against your tasks. It handles scheduling, retries, concurrency, cron jobs, tiered memory, and WhatsApp notifications — so you can queue up work and let agents grind through it.
+TurboClaw spawns ephemeral Docker containers to run AI coding agents (OpenCode or Claude Code) against your tasks. It handles scheduling, retries, concurrency, cron jobs, tiered memory, and WhatsApp notifications — so you can queue up work and let agents grind through it.
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ bun run src/index.ts
 ## What It Does
 
 - **Queue tasks** — create coding tasks via TUI, API, or WhatsApp message
-- **Multi-agent** — run tasks with OpenCode, Claude Code (`claude -p`), or Codex (`codex exec`)
+- **Multi-agent** — run tasks with OpenCode or Claude Code (`claude -p`)
 - **Docker isolation** — each task runs in its own container with a mounted workspace
 - **Scheduling** — FIFO, priority, or round-robin strategies with configurable concurrency
 - **Retries** — automatic retry on failure with configurable limits
@@ -76,7 +76,7 @@ bun run src/index.ts
 │  Docker containers                    │                              │
 │  ┌────────────────────────────────────▼────────────────────────────┐ │
 │  │  turboclaw-worker:latest                                        │ │
-│  │  OpenCode / Claude Code / Codex                                 │ │
+│  │  OpenCode / Claude Code                                          │ │
 │  │  + opencode-browser + skill discovery CLIs                      │ │
 │  │  + /workspace (mounted) + /memory (mounted)                     │ │
 │  └─────────────────────────────────────────────────────────────────┘ │
@@ -240,7 +240,6 @@ Core memories are also created during onboarding setup (name, role, project cont
 |-------|---------|------|
 | OpenCode (default) | `opencode run --prompt "..."` | API key or OAuth |
 | Claude Code | `claude -p "..." --allowedTools ...` | Subscription (`~/.claude/`) |
-| Codex | `codex exec --full-auto "..."` | Subscription (`~/.codex/`) |
 
 Set the agent in `~/.turboclaw/config.json`:
 ```json

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-TurboClaw is a Dockerized AI agent runner that supports multiple agent backends (OpenCode, Claude Code, Codex). It uses nullclaw-style separation of concerns: tracker (source of truth), orchestrator (policy engine), agent (executor in Docker). Controllable via TUI, REST API, or WhatsApp. Built entirely on Bun with Bun's built-in SQLite.
+TurboClaw is a Dockerized AI agent runner that supports multiple agent backends (OpenCode, Claude Code). It uses nullclaw-style separation of concerns: tracker (source of truth), orchestrator (policy engine), agent (executor in Docker). Controllable via TUI, REST API, or WhatsApp. Built entirely on Bun with Bun's built-in SQLite.
 
 ## Tech Stack
 
@@ -11,7 +11,7 @@ TurboClaw is a Dockerized AI agent runner that supports multiple agent backends 
 - **Language:** TypeScript (strict mode), TSX for TUI components
 - **TUI:** Ink (React for CLIs) + `@inkjs/ui` components
 - **Container:** Docker (worker containers run agents)
-- **Agents:** OpenCode (default), Claude Code (`claude -p`), Codex (`codex exec`) — configurable per instance
+- **Agents:** OpenCode (default), Claude Code (`claude -p`) — configurable per instance
 - **Browser:** opencode-browser plugin with agent-browser backend (headless Playwright)
 - **HTTP:** `Bun.serve()` — no Express, no Hono, no frameworks
 - **WhatsApp:** `@whiskeysockets/baileys` for WhatsApp Web bridge
@@ -23,7 +23,7 @@ TurboClaw is a Dockerized AI agent runner that supports multiple agent backends 
 ```
 tracker = source of truth    → src/tracker/
 orchestrator = policy engine → src/orchestrator/
-agent = executor             → Docker container running OpenCode/Claude Code/Codex
+agent = executor             → Docker container running OpenCode/Claude Code
 ```
 
 These boundaries are HARD. Never:
@@ -206,7 +206,6 @@ TurboClaw supports three agent backends, configured via `config.agent`:
 |-------|---------|------|-----------------|
 | `opencode` (default) | `opencode run --model {model} "{prompt}"` | Mounts host config | `~/.config/opencode/`, `~/.local/share/opencode/` |
 | `claude-code` | `claude -p "{prompt}" --dangerously-skip-permissions` | API key or OAuth token | `~/.claude/` |
-| `codex` | `codex exec --full-auto "{prompt}"` | Subscription | `~/.codex/` |
 
 Agent resolution happens in `src/container/agent-commands.ts`. The orchestrator calls `buildAgentCommand()` to get the CLI args, then passes them as `agentCommand` in spawn options. The container manager uses `opts.agentCommand` if present, falling back to the default.
 
@@ -320,7 +319,7 @@ Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gate
   orchestrator: { pollIntervalMs: 2000, maxConcurrency: 2, leaseDurationSec: 600, schedulingStrategy: "priority" },
   selfImprove: { enabled: false },
   provider: { type: "anthropic", apiKey?: "...", baseUrl?: "...", model?: "..." } | null,
-  agent: "opencode" | "claude-code" | "codex",  // optional, defaults to "opencode"
+  agent: "opencode" | "claude-code",  // optional, defaults to "opencode"
   workspaceRoot: "/path/to/project",  // optional, defaults to cwd
   whatsapp: { enabled: false, allowedNumbers: [], allowedGroups: [], notifyOnComplete: false, notifyOnFail: false },
   memory: { dailyRetentionDays: 7, weeklyRetentionWeeks: 4 },
@@ -340,7 +339,7 @@ Env var overrides: `TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS`, `TURBOCLAW_MEMORY_WE
 | `claude-code` | API key or OAuth token | Stores in config, sets agent to `claude-code` |
 | `opencode-config` | None (mounts host config) | Mounts `~/.config/opencode/` and `~/.local/share/opencode/`, sets agent to `opencode` |
 
-The `opencode-config` option supports any provider the user has configured in their host OpenCode installation (Copilot, ChatGPT, Ollama, Codex, etc.) — no additional auth needed in TurboClaw.
+The `opencode-config` option supports any provider the user has configured in their host OpenCode installation (Copilot, ChatGPT, Ollama, etc.) — no additional auth needed in TurboClaw.
 
 ## Build & Run Commands
 
