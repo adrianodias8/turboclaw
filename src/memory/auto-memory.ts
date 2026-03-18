@@ -1,3 +1,4 @@
+import { basename } from "path";
 import { createTaskLog } from "./writer";
 import { listNotes } from "./vault";
 import type { Task } from "../tracker/types";
@@ -23,7 +24,7 @@ export function maybeCreateTaskMemory(
 
   // Deduplicate: skip if a task log already exists for this task ID
   const existingNotes = listNotes(vaultPath, "tasks");
-  if (existingNotes.some(n => n.filename.startsWith(task.id.slice(0, 8)))) return null;
+  if (existingNotes.some(n => basename(n.path).startsWith(task.id.slice(0, 8)))) return null;
 
   const trimmed = output.length > 800
     ? output.slice(0, 800) + "..."

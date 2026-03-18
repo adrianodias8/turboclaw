@@ -78,3 +78,18 @@ describe("UNHELPFUL_PATTERNS filtering", () => {
     expect(result).toBeNull();
   });
 });
+
+describe("deduplication", () => {
+  it("skips creating a task log when one already exists for the same task ID", () => {
+    const task = makeTask();
+    const output = "I fixed the authentication middleware by adding a session expiry check before the redirect. The issue was that expired sessions were being redirected in a loop. " + "x".repeat(100);
+
+    // First call should succeed
+    const first = maybeCreateTaskMemory(TEST_VAULT, task, output);
+    expect(first).not.toBeNull();
+
+    // Second call with same task ID should be deduplicated
+    const second = maybeCreateTaskMemory(TEST_VAULT, task, output);
+    expect(second).toBeNull();
+  });
+});

@@ -1,6 +1,7 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { processInbox, pruneOrphans, findUnlinkedRelated, compileWeeklySummary, pruneExpiredMemories } from "./librarian";
+import { decayInstincts } from "./instincts";
 import { logger } from "../logger";
 
 export interface MemoryConfig {
@@ -62,6 +63,12 @@ export function startLibrarian(
 
       // Prune expired memories
       pruneExpiredMemories(vaultPath, memoryConfig.dailyRetentionDays, memoryConfig.weeklyRetentionWeeks);
+
+      // Decay instinct confidence for stale patterns
+      const decay = decayInstincts(vaultPath);
+      if (decay.decayed > 0 || decay.pruned > 0) {
+        logger.info(`Librarian: decayed ${decay.decayed} instincts, pruned ${decay.pruned}`);
+      }
     } catch (err) {
       logger.error("Librarian error:", err);
     }
