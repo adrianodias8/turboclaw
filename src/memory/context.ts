@@ -136,7 +136,6 @@ export function detectLanguages(workspacePath: string): string[] {
   const checks: [string, string][] = [
     ["tsconfig.json", "typescript"],
     ["package.json", "typescript"],    // Bun/Node projects
-    ["composer.json", "php"],
     ["go.mod", "golang"],
     ["Cargo.toml", "rust"],
     ["pyproject.toml", "python"],
