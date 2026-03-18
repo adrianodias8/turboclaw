@@ -182,9 +182,13 @@ export function startOrchestrator(
     const skillsDir = join(projectRoot, "docker", "skills");
     const rulesDir = join(projectRoot, "docker", "rules");
 
+    // Save original task description before prompt building — used for memory search
+    // so we don't pollute queries with protocol/context keywords
+    const taskQuery = task.description ?? task.title;
+
     // Build prompt — injection order (outermost first):
     // completion → coreMemory → rules → roleSkill → searchFirst → instincts → searchMemory → selfImprove → chatHistory → task
-    let prompt = task.description ?? task.title;
+    let prompt = taskQuery;
 
     if (task.agent_role === "self-improve") {
       prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
@@ -212,13 +216,13 @@ export function startOrchestrator(
     }
 
     // Matched instincts (learned patterns from previous tasks)
-    const instinctContext = buildInstinctContext(memoryVaultPath, task.description ?? task.title);
+    const instinctContext = buildInstinctContext(memoryVaultPath, taskQuery);
     if (instinctContext) {
       prompt = `${instinctContext}\n\n---\n\n${prompt}`;
     }
 
     // Search-based memory (daily/weekly notes matched by keywords)
-    const memoryContext = buildContext(memoryVaultPath, prompt, [], 3);
+    const memoryContext = buildContext(memoryVaultPath, taskQuery, [], 3);
     if (memoryContext) {
       prompt = `${memoryContext}\n\n---\n\n${prompt}`;
     }
