@@ -93,7 +93,7 @@ export interface CreatePipelineInput {
   stages: unknown[];
 }
 
-export type AlertKind = "task_failed" | "lease_expired" | "whatsapp_disconnect" | "security_warning";
+export type AlertKind = "task_failed" | "lease_expired" | "whatsapp_disconnect" | "security_warning" | "prompt_truncated";
 
 export interface Cron {
   id: string;
