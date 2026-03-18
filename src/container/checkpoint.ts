@@ -281,15 +281,22 @@ export function createCheckpointManager(workspacePath: string, checkpointsBase: 
     // The oldest-to-keep is at index max-1 (0-indexed, newest first)
     const oldestToKeep = hashes[max - 1]!;
 
-    // Reset to oldest-to-keep, discarding older history
-    const reset = git(["reset", "--hard", oldestToKeep], checkpointDir, workspacePath);
+    // Reset history without GIT_WORK_TREE to avoid modifying workspace files
+    const bareEnv: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      GIT_DIR: join(checkpointDir, ".git"),
+    };
+    // Remove GIT_WORK_TREE so reset only affects the shadow repo history
+    delete bareEnv.GIT_WORK_TREE;
+
+    const reset = Bun.spawnSync(["git", "reset", "--soft", oldestToKeep], { env: bareEnv });
     if (reset.exitCode !== 0) {
-      logger.warn(`Checkpoint prune reset failed: ${reset.stderr}`);
+      logger.warn(`Checkpoint prune reset failed: ${new TextDecoder().decode(reset.stderr)}`);
       return 0;
     }
 
     // Garbage collect
-    git(["gc", "--prune=now"], checkpointDir, workspacePath);
+    Bun.spawnSync(["git", "gc", "--prune=now"], { env: bareEnv });
 
     return pruneCount;
   }

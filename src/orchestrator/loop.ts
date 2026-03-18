@@ -268,6 +268,16 @@ export function startOrchestrator(
     const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
     layers.push({ name: "protocol", content: completionProtocol(task.id, apiUrl), priority: 99 });
 
+    // Reflection nudge: every Nth task, remind the agent to save durable insights
+    taskCounter++;
+    if (taskCounter % NUDGE_INTERVAL === 0) {
+      layers.push({
+        name: "nudge",
+        content: "# Reflection Nudge\n\nBefore finishing, take a moment to reflect: Did you learn anything durable during this task? If so, save it to memory using the memory API. Good candidates: environment quirks, effective patterns, project-specific conventions, debugging insights.",
+        priority: 35,
+      });
+    }
+
     // Enforce prompt size budget — truncate layers by priority if too large
     const MAX_PROMPT_CHARS = 180000; // ~45K tokens, leaves room for agent output
     const SEPARATOR = "\n\n---\n\n";
@@ -293,16 +303,6 @@ export function startOrchestrator(
       }
 
       store.createAlert("prompt_truncated", `Task "${task.title}" prompt was truncated from ${originalLength} to ${MAX_PROMPT_CHARS} chars — some context was lost`, task.id);
-    }
-
-    // Reflection nudge: every Nth task, remind the agent to save durable insights
-    taskCounter++;
-    if (taskCounter % NUDGE_INTERVAL === 0) {
-      layers.push({
-        name: "nudge",
-        content: "# Reflection Nudge\n\nBefore finishing, take a moment to reflect: Did you learn anything durable during this task? If so, save it to memory using the memory API. Good candidates: environment quirks, effective patterns, project-specific conventions, debugging insights.",
-        priority: 35,
-      });
     }
 
     // Assemble prompt: protocol first, then layers by priority descending, task last

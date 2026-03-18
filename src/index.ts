@@ -56,6 +56,9 @@ async function bootHeadless() {
       orchestrator.requestRestart(doRestart);
     },
     vaultPath: join(config.home, "memory"),
+    skillsDir: join(config.home, "skills"),
+    checkpointsBase: join(config.home, "checkpoints"),
+    workspaceRoot: config.workspaceRoot ?? process.cwd(),
   });
 
   const orchestrator = startOrchestrator(store, containerManager, config, restartToken, doRestart);

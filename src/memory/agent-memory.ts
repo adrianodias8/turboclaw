@@ -25,12 +25,14 @@ export function addAgentMemory(
     return { ok: false, error: `Memory with title "${title}" already exists` };
   }
 
-  // Check budget
+  // Check budget — account for template overhead (# Title\n\n prefix added by template)
+  const templateOverhead = `# ${title}\n\n`.length;
+  const totalNeeded = content.length + templateOverhead;
   const budget = getAgentMemoryBudget(vaultPath);
-  if (budget.remaining < content.length) {
+  if (budget.remaining < totalNeeded) {
     return {
       ok: false,
-      error: `Budget exceeded: need ${content.length} chars but only ${budget.remaining} remaining (${budget.used}/${budget.max} used)`,
+      error: `Budget exceeded: need ${totalNeeded} chars but only ${budget.remaining} remaining (${budget.used}/${budget.max} used)`,
     };
   }
 
@@ -60,10 +62,11 @@ export function replaceAgentMemory(
     return { ok: false, error: `No memory found with title "${title}"` };
   }
 
-  // Check budget: subtract old content, add new content
+  // Check budget: subtract old content, add new (template rebuilds with same title overhead)
   const budget = getAgentMemoryBudget(vaultPath);
   const oldContentLength = match.content.length;
-  const newBudgetUsed = budget.used - oldContentLength + newContent.length;
+  const newStoredLength = newContent.length + `# ${title}\n\n`.length;
+  const newBudgetUsed = budget.used - oldContentLength + newStoredLength;
   if (newBudgetUsed > budget.max) {
     return {
       ok: false,

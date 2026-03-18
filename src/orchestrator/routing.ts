@@ -68,7 +68,8 @@ export function routeTask(
   // Complexity keywords (case-insensitive, word boundary)
   const lowerText = text.toLowerCase();
   for (const keyword of config.complexityKeywords) {
-    const pattern = new RegExp(`\\b${keyword}\\b`, "i");
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`\\b${escaped}\\b`, "i");
     if (pattern.test(lowerText)) {
       return { model: null, reason: "complex_turn" };
     }
