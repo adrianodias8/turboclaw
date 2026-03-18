@@ -12,6 +12,8 @@ import { Alerts } from "./screens/alerts";
 import { Settings } from "./screens/settings";
 import { Logs } from "./screens/logs";
 import { Memory } from "./screens/memory";
+import { Experiments } from "./screens/experiments";
+import { Pipelines } from "./screens/pipelines";
 import { useConfig } from "./hooks/use-config";
 import { useOrchestratorStatus } from "./hooks/use-orchestrator";
 import { useStatus } from "./hooks/use-tracker";
@@ -60,6 +62,8 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
         "5": "alerts",
         "6": "logs",
         "7": "settings",
+        "8": "experiments",
+        "9": "pipelines",
       };
       if (screenMap[input]) {
         navigate(screenMap[input]);
@@ -101,6 +105,12 @@ export function App({ store, initialConfig, startedAt, whatsappBridge }: AppProp
         )}
         {screen === "memory" && !taskDetailId && (
           <Memory config={config} />
+        )}
+        {screen === "experiments" && !taskDetailId && (
+          <Experiments store={store} />
+        )}
+        {screen === "pipelines" && !taskDetailId && (
+          <Pipelines store={store} />
         )}
       </Box>
 

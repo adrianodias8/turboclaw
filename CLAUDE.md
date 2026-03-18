@@ -45,7 +45,7 @@ Spawns Docker containers running the configured agent CLI. Each task gets its ow
 REST API via `Bun.serve()`. Thin layer over tracker operations. SSE for event streaming.
 
 ### TUI (`src/tui/`)
-Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Eight screens: Dashboard, Tasks, Crons, Memory, Alerts, Logs, Settings, Experiments.
+Interactive terminal interface built with **Ink** (React for CLIs) + `@inkjs/ui`. Nine screens: Dashboard, Tasks, Crons, Memory, Alerts, Logs, Settings, Experiments, Pipelines.
 
 **Key rules for TUI code:**
 - All screens are React functional components using Ink's `<Box>` and `<Text>` primitives
@@ -98,7 +98,7 @@ src/
       memory.tsx    — three-tier memory management (core/daily/weekly sub-tabs)
       experiments.tsx — autoresearch experiment sessions and results
     components/
-      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Memory [5] Alerts [6] Logs [7] Settings
+      nav.tsx       — tab navigation: [1] Dashboard [2] Tasks [3] Crons [4] Memory [5] Alerts [6] Logs [7] Settings [8] Experiments [9] Pipelines
       status-bar.tsx — bottom bar: queue, workers, uptime, alert badge, provider, WA status
       task-row.tsx  — single row in task list
       event-stream.tsx — scrollable log

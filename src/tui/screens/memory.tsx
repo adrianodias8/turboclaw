@@ -14,7 +14,7 @@ interface MemoryProps {
   config: TurboClawConfig;
 }
 
-type Tier = "core" | "daily" | "weekly";
+type Tier = "core" | "daily" | "weekly" | "agent";
 type Mode = "list" | "view" | "create-title" | "create-content" | "edit";
 
 function truncateOneLine(s: string, max: number): string {
@@ -39,6 +39,7 @@ export function Memory({ config }: MemoryProps) {
 
     // Sub-tab switching
     if (input === "c") { setTier("core"); setSelectedIndex(0); return; }
+    if (input === "a") { setTier("agent"); setSelectedIndex(0); return; }
     if (input === "d") { setTier("daily"); setSelectedIndex(0); return; }
     if (input === "w") { setTier("weekly"); setSelectedIndex(0); return; }
 
@@ -124,7 +125,7 @@ export function Memory({ config }: MemoryProps) {
     setEditPath("");
   };
 
-  const tierLabel = tier === "core" ? "Core" : tier === "daily" ? "Daily" : "Weekly";
+  const tierLabel = tier === "core" ? "Core" : tier === "agent" ? "Agent" : tier === "daily" ? "Daily" : "Weekly";
 
   // View mode
   if (mode === "view" && viewNote) {
@@ -187,6 +188,8 @@ export function Memory({ config }: MemoryProps) {
   // List mode
   const actions = tier === "core"
     ? "[n] create  [e] edit  [x] delete  [Enter] view"
+    : tier === "agent"
+    ? "[x] delete  [Enter] view"
     : tier === "weekly"
     ? "[x] delete  [r] regenerate  [Enter] view"
     : "[x] delete  [Enter] view";
@@ -196,6 +199,7 @@ export function Memory({ config }: MemoryProps) {
       <Box marginBottom={1} gap={2}>
         <Text bold color="cyan">Memory</Text>
         <Text color={tier === "core" ? "cyan" : "gray"} bold={tier === "core"}>[c] Core</Text>
+        <Text color={tier === "agent" ? "cyan" : "gray"} bold={tier === "agent"}>[a] Agent</Text>
         <Text color={tier === "daily" ? "cyan" : "gray"} bold={tier === "daily"}>[d] Daily</Text>
         <Text color={tier === "weekly" ? "cyan" : "gray"} bold={tier === "weekly"}>[w] Weekly</Text>
       </Box>
@@ -218,7 +222,7 @@ export function Memory({ config }: MemoryProps) {
                 <Text color={i === selectedIndex ? "cyan" : undefined} bold={i === selectedIndex}>
                   {i === selectedIndex ? "> " : "  "}
                 </Text>
-                {tier === "core" ? (
+                {(tier === "core" || tier === "agent") ? (
                   <Text>
                     <Text bold={i === selectedIndex}>{title}</Text>
                     <Text dimColor>: {preview}</Text>
