@@ -271,7 +271,7 @@ A base set from `docker/skills-manifest.json` is baked into the worker image. In
 The orchestrator runs `src/skills/discovery.ts` before spawning a container. It extracts keywords from the task prompt, queries ClawhHub and n-skills registries, caches results locally, and mounts matching skills into the container. Controlled via `config.skills` (`autoDiscover`, `maxPerTask`, `registries`).
 
 ### Tier 3: Agent-Created Skills (self-learning)
-Agents can create and patch reusable SKILL.md files via the REST API (`POST /skills`, `PATCH /skills/:name`). Skills are stored at `~/.turboclaw/skills/` and automatically mounted into subsequent containers. All agent-written skill content is scanned for prompt injection before acceptance (`src/skills/guard.ts`).
+Agents can create and patch reusable SKILL.md files via the REST API (`POST /skills`, `PATCH /skills/:name`). Skills are stored at `.turboclaw/skills/` and automatically mounted into subsequent containers. All agent-written skill content is scanned for prompt injection before acceptance (`src/skills/guard.ts`).
 
 ### What NOT to do with skills
 - **Do NOT create a custom skills framework.** Use OpenCode's native skill system.
@@ -292,7 +292,7 @@ Restart can also be triggered manually:
 
 ## Memory System — Four-Tier Zettelkasten (`src/memory/`)
 
-TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/memory/`, organized in four tiers. Pure filesystem — no Obsidian app dependency.
+TurboClaw's long-term memory is an Obsidian-compatible vault at `.turboclaw/memory/`, organized in four tiers. Pure filesystem — no Obsidian app dependency.
 
 ### Four Memory Tiers
 
@@ -329,7 +329,7 @@ TurboClaw's long-term memory is an Obsidian-compatible vault at `~/.turboclaw/me
 
 ## Configuration
 
-Single JSON file: `~/.turboclaw/config.json` (or `$TURBOCLAW_HOME/config.json`).
+Single JSON file: `.turboclaw/config.json` in the project root (or `$TURBOCLAW_HOME/config.json`).
 
 Env var overrides follow pattern: `TURBOCLAW_GATEWAY_PORT=7800` → `config.gateway.port`.
 
@@ -425,7 +425,7 @@ Autonomous experiment runner for self-improvement. The orchestrator spawns a tim
 
 Pattern learning layer on top of the memory vault. Instincts are trigger/action pairs with confidence scores that decay over time (-0.05/week), encouraging fresh evidence.
 
-- Stored as markdown files in `~/.turboclaw/memory/instincts/`
+- Stored as markdown files in `.turboclaw/memory/instincts/`
 - Each instinct has: `trigger`, `action`, `confidence` (0.3–0.9), `domain`, `scope`, `evidence[]` (capped at 20)
 - Built into prompt context via `buildInstinctContext()` alongside core memory
 - Created/updated automatically from task outcomes
@@ -434,7 +434,7 @@ Pattern learning layer on top of the memory vault. Instincts are trigger/action 
 
 Shadow git snapshots of workspaces before each task run. Enables rollback when agents make mistakes.
 
-- Stored at `~/.turboclaw/checkpoints/{sha256(workspace)[:16]}/`
+- Stored at `.turboclaw/checkpoints/{sha256(workspace)[:16]}/`
 - Uses `GIT_DIR` + `GIT_WORK_TREE` env vars — no `.git` in the user's workspace
 - Auto-snapshot before every container spawn
 - `restore()` takes a safety snapshot first, then `git checkout <hash> -- .`

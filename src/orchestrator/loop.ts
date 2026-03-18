@@ -399,7 +399,7 @@ export function startOrchestrator(
       }
     }
 
-    // Also mount locally-created skills from ~/.turboclaw/skills/
+    // Also mount locally-created skills from .turboclaw/skills/
     const localSkillsDir = join(config.home, "skills");
     if (existsSync(localSkillsDir)) {
       try {

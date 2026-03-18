@@ -248,7 +248,7 @@ Manages Docker lifecycle for agent workers.
 **Worker container image:** `turboclaw-worker:latest`
 
 **Container spawn flow:**
-1. Create workspace directory: `~/.turboclaw/workspaces/{task_id}/`
+1. Create workspace directory: `.turboclaw/workspaces/{task_id}/`
 2. Mount workspace + task context into container
 3. Run the configured agent CLI (OpenCode or Claude Code) with the task prompt
 4. Stream stdout/stderr back as events to tracker
@@ -260,8 +260,8 @@ Manages Docker lifecycle for agent workers.
 docker run --rm \
   --name turboclaw-worker-{task_id} \
   -e ANTHROPIC_API_KEY=... \
-  -v ~/.turboclaw/workspaces/{task_id}:/workspace \
-  -v ~/.turboclaw/memory:/memory:rw \
+  -v .turboclaw/workspaces/{task_id}:/workspace \
+  -v .turboclaw/memory:/memory:rw \
   --network=turboclaw-net \
   turboclaw-worker:latest \
   claude -p "{task_prompt}" --allowedTools ... --output-format stream-json
@@ -439,7 +439,7 @@ The onboarding must be dead simple — 3 choices max to get running.
 
 **Step 6: Done!**
 - Shows summary: provider, agent, WhatsApp status, core memory info
-- Saves config to `~/.turboclaw/config.json`
+- Saves config to `.turboclaw/config.json`
 - Ready to launch TUI
 
 **Key onboarding principles:**
@@ -487,7 +487,7 @@ docker run --rm \
   --name turboclaw-worker-{task_id} \
   -e ANTHROPIC_API_KEY=... \
   -v /path/to/turboclaw:/workspace:rw \
-  -v ~/.turboclaw/memory:/memory:rw \
+  -v .turboclaw/memory:/memory:rw \
   --network=turboclaw-net \
   turboclaw-worker:latest \
   claude -p "{task_prompt}" --allowedTools ... --output-format stream-json
@@ -537,12 +537,12 @@ TurboClaw uses an Obsidian-compatible vault as its long-term memory, organized i
 | **Daily** | `tasks/` | Search-based | Auto-captured on task completion, pruned after N days | View/delete via TUI |
 | **Weekly** | `weekly/` | Search-based | Auto-compiled from daily, pruned after N weeks | View/delete/regen via TUI |
 
-**Vault location:** `~/.turboclaw/memory/`
+**Vault location:** `.turboclaw/memory/`
 
 **Vault structure:**
 
 ```
-~/.turboclaw/memory/
+.turboclaw/memory/
 ├── core/                        # TIER 1: Core memory (always injected)
 │   ├── user-name.md             # Created during onboarding
 │   ├── user-role.md
@@ -623,8 +623,8 @@ after rarely-changing layers (like `apt-get install`).
 ```bash
 docker run --rm \
   --name turboclaw-worker-{task_id} \
-  -v ~/.turboclaw/memory:/memory:rw \
-  -v ~/.turboclaw/workspaces/{task_id}:/workspace \
+  -v .turboclaw/memory:/memory:rw \
+  -v .turboclaw/workspaces/{task_id}:/workspace \
   ...
 ```
 
@@ -781,7 +781,7 @@ turboclaw/
 
 ## 6. Configuration
 
-Single config file: `~/.turboclaw/config.json`
+Single config file: `.turboclaw/config.json`
 
 Override with `TURBOCLAW_HOME` env var or `--config` flag.
 
@@ -801,7 +801,7 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
   "container": {
     "image": "turboclaw-worker:latest",
     "network": "turboclaw-net",
-    "workspacesDir": "~/.turboclaw/workspaces"
+    "workspacesDir": ".turboclaw/workspaces"
   },
   "provider": {
     "type": "copilot",
@@ -857,7 +857,7 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 - [x] Concurrency control
 
 ### Phase 5: Memory — Obsidian Zettelkasten
-- [x] Initialize vault structure on first run (`~/.turboclaw/memory/`)
+- [x] Initialize vault structure on first run (`.turboclaw/memory/`)
 - [x] Note templates (fleeting, permanent, task-log, project-moc)
 - [x] Memory search (full-text, tags, wikilink graph traversal)
 - [x] Context injection (orchestrator reads vault, injects relevant notes into task prompt)

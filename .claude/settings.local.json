@@ -25,10 +25,10 @@
       "Bash(xargs -I{} gh api repos/adrianodias8/bunclaw/git/trees/{} --jq .tree[].path)",
       "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d[''''content'''']\\).decode\\(\\)\\)\")",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''dependencies'''',{}\\), indent=2\\)\\)\")",
-      "Bash(rm -rf ~/.turboclaw/whatsapp-auth)",
-      "Bash(mkdir -p ~/.turboclaw/whatsapp-auth)",
+      "Bash(rm -rf .turboclaw/whatsapp-auth)",
+      "Bash(mkdir -p .turboclaw/whatsapp-auth)",
       "Bash(gtimeout 30 bun run src/index.ts --headless)",
-      "Bash(sqlite3 ~/.turboclaw/turboclaw.db \"SELECT id, title, status, retries FROM tasks ORDER BY created_at DESC LIMIT 10;\")",
+      "Bash(sqlite3 .turboclaw/turboclaw.db \"SELECT id, title, status, retries FROM tasks ORDER BY created_at DESC LIMIT 10;\")",
       "Bash(docker build:*)",
       "Bash(git add:*)"
     ]

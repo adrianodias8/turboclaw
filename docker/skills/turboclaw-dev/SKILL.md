@@ -31,7 +31,7 @@ agent (Docker container)     → you, executing tasks
 
 ## Database Schema
 
-The SQLite database is at `~/.turboclaw/turboclaw.db`. All queries use prepared statements via `src/tracker/store.ts`.
+The SQLite database is at `.turboclaw/turboclaw.db`. All queries use prepared statements via `src/tracker/store.ts`.
 
 ### Core Tables
 
@@ -252,7 +252,7 @@ src/
 
 ## Configuration
 
-Single file: `~/.turboclaw/config.json`
+Single file: `.turboclaw/config.json`
 
 ```typescript
 {
@@ -272,7 +272,7 @@ Env var overrides: `TURBOCLAW_GATEWAY_PORT`, `TURBOCLAW_MAX_CONCURRENCY`, `TURBO
 
 ## Memory System (Three-Tier Zettelkasten)
 
-Vault at `~/.turboclaw/memory/`, Obsidian-compatible markdown files.
+Vault at `.turboclaw/memory/`, Obsidian-compatible markdown files.
 
 | Tier | Dir | Injected | Lifecycle |
 |------|-----|----------|-----------|

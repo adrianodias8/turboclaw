@@ -58,12 +58,12 @@ bun run src/index.ts setup
 8. **Ready Screen**
    - Shows summary of all configuration
    - Press `Enter` to exit
-   - Expected: `~/.turboclaw/config.json` created, `~/.turboclaw/memory/core/` has 4+ notes
+   - Expected: `.turboclaw/config.json` created, `.turboclaw/memory/core/` has 4+ notes
 
 **Verify:**
 ```bash
-cat ~/.turboclaw/config.json
-ls ~/.turboclaw/memory/core/
+cat .turboclaw/config.json
+ls .turboclaw/memory/core/
 ```
 
 ---
@@ -581,7 +581,7 @@ curl -N http://localhost:7800/runs/<RUN_ID>/events
 
 **Enable in config:**
 ```bash
-# Edit ~/.turboclaw/config.json and add:
+# Edit .turboclaw/config.json and add:
 # "autoresearch": { "enabled": true, "timeBudgetMs": 300000, "maxExperiments": 5 }
 ```
 

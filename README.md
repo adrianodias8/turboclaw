@@ -73,7 +73,7 @@ bun run src/index.ts
 │                                       │                              │
 │           ┌───────────────────────────┼──────────────────────┐       │
 │           │  Memory Vault             │                      │       │
-│           │  ~/.turboclaw/memory/     │                      │       │
+│           │  .turboclaw/memory/     │                      │       │
 │           │  ├── core/    (always)    │                      │       │
 │           │  ├── tasks/   (daily)     │                      │       │
 │           │  └── weekly/  (compiled)  │                      │       │
@@ -143,11 +143,11 @@ bun run src/index.ts
 
 ## Memory System — Three Tiers
 
-TurboClaw uses a tiered memory system stored as an Obsidian-compatible vault at `~/.turboclaw/memory/`.
+TurboClaw uses a tiered memory system stored as an Obsidian-compatible vault at `.turboclaw/memory/`.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Memory Vault (~/.turboclaw/memory/)           │
+│                    Memory Vault (.turboclaw/memory/)           │
 │                                                                  │
 │  ┌────────────────┐  ┌────────────────┐  ┌────────────────────┐ │
 │  │  CORE (core/)  │  │ DAILY (tasks/) │  │ WEEKLY (weekly/)   │ │
@@ -247,7 +247,7 @@ Core memories are also created during onboarding setup (name, role, project cont
 | OpenCode (default) | `opencode run --prompt "..."` | API key or OAuth |
 | Claude Code | `claude -p "..." --allowedTools ...` | Subscription (`~/.claude/`) |
 
-Set the agent in `~/.turboclaw/config.json`:
+Set the agent in `.turboclaw/config.json`:
 ```json
 { "agent": "claude-code" }
 ```
@@ -324,7 +324,7 @@ Standard 5-field cron expressions: `minute hour day-of-month month day-of-week`.
 
 ## Configuration
 
-Config lives at `~/.turboclaw/config.json`. Key settings:
+Config lives at `.turboclaw/config.json`. Key settings:
 
 ```json
 {

@@ -46,7 +46,7 @@ export function Settings({ config, updateConfig, whatsappBridge }: SettingsProps
       label: "Gateway port",
       value: String(config.gateway.port),
       readOnly: true,
-      action: () => setHint("Edit gateway.port in ~/.turboclaw/config.json"),
+      action: () => setHint("Edit gateway.port in .turboclaw/config.json"),
     },
     {
       label: "Max concurrency",
@@ -128,7 +128,7 @@ export function Settings({ config, updateConfig, whatsappBridge }: SettingsProps
       label: "Workspace root",
       value: config.workspaceRoot ?? process.cwd(),
       readOnly: true,
-      action: () => setHint("Edit workspaceRoot in ~/.turboclaw/config.json"),
+      action: () => setHint("Edit workspaceRoot in .turboclaw/config.json"),
     },
     {
       label: "Agent type",
