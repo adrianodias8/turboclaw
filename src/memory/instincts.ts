@@ -172,9 +172,10 @@ export function extractInstincts(
   const now = new Date().toISOString();
 
   // Pattern: "switched from X to Y" / "replaced X with Y" / "instead of X, use Y"
+  // Captures multi-word phrases (3-50 chars) terminated by punctuation or EOL
   const switchPatterns = [
-    /(?:switched|changed|replaced|moved)\s+(?:from\s+)?(\S+)\s+(?:to|with)\s+(\S+)/gi,
-    /instead\s+of\s+(\S+)[\s,]+(?:use|prefer)\s+(\S+)/gi,
+    /(?:switched|changed|replaced|moved)\s+(?:from\s+)?(.{3,50}?)\s+(?:to|with)\s+(.{3,50}?)(?:\.|,|\s*$)/gi,
+    /instead\s+of\s+(.{3,50}?)[\s,]+(?:use|prefer)\s+(.{3,50}?)(?:\.|,|\s*$)/gi,
   ];
   for (const pattern of switchPatterns) {
     for (const match of taskOutput.matchAll(pattern)) {

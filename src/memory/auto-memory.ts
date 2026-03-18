@@ -1,4 +1,5 @@
 import { createTaskLog } from "./writer";
+import { listNotes } from "./vault";
 import type { Task } from "../tracker/types";
 
 const UNHELPFUL_PATTERNS = [
@@ -18,7 +19,11 @@ export function maybeCreateTaskMemory(
   if (output.length < 100 || task.title.length < 5) return null;
 
   // Don't save unhelpful/refusal responses as memories
-  if (UNHELPFUL_PATTERNS.some(p => p.test(output.slice(0, 200)))) return null;
+  if (UNHELPFUL_PATTERNS.some(p => p.test(output))) return null;
+
+  // Deduplicate: skip if a task log already exists for this task ID
+  const existingNotes = listNotes(vaultPath, "tasks");
+  if (existingNotes.some(n => n.filename.startsWith(task.id.slice(0, 8)))) return null;
 
   const trimmed = output.length > 800
     ? output.slice(0, 800) + "..."

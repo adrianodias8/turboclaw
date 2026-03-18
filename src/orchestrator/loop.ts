@@ -74,15 +74,14 @@ export function startOrchestrator(
     if (queued.length === 0) return;
 
     const sorted = sortTasks(queued, config.orchestrator.schedulingStrategy);
-    const nextTask = sorted[0];
-    if (!nextTask) return;
 
-    // Claim the specific task chosen by the strategy
-    const claimed = store.claimTask(nextTask.id, "orchestrator", config.orchestrator.leaseDurationSec);
-    if (!claimed) {
-      // Race condition: another worker claimed it. Try the default fallback.
-      return;
+    // Try to claim a task — if the top pick was already claimed, try subsequent ones
+    let claimed = null;
+    for (const nextTask of sorted) {
+      claimed = store.claimTask(nextTask.id, "orchestrator", config.orchestrator.leaseDurationSec);
+      if (claimed) break;
     }
+    if (!claimed) return;
 
     const { task, run, lease } = claimed;
     activeCount++;
@@ -186,15 +185,19 @@ export function startOrchestrator(
     // so we don't pollute queries with protocol/context keywords
     const taskQuery = task.description ?? task.title;
 
-    // Build prompt — injection order (outermost first):
-    // completion → coreMemory → rules → roleSkill → searchFirst → instincts → searchMemory → selfImprove → chatHistory → task
-    let prompt = taskQuery;
+    // Build prompt layers — each layer has a priority (higher = keep when truncating)
+    // task=100, protocol=99, core=90, selfImprove=80, rules=70, roleSkill=60, instincts=50, memory=40, chatHistory=30
+    const layers: Array<{ name: string; content: string; priority: number }> = [];
 
+    // Task description (highest priority — always kept)
+    layers.push({ name: "task", content: taskQuery, priority: 100 });
+
+    // Self-improve preamble
     if (task.agent_role === "self-improve") {
-      prompt = `${selfImprovePreamble(task.id)}\n\n${prompt}`;
+      layers.push({ name: "selfImprove", content: selfImprovePreamble(task.id), priority: 80 });
     }
 
-    // Inject recent conversation history for WhatsApp tasks
+    // Chat history for WhatsApp tasks
     if (task.reply_jid) {
       const history = store.getRecentChatMessages(task.reply_jid, 20);
       const previous = history
@@ -211,69 +214,88 @@ export function startOrchestrator(
         const lines = previous.map(m =>
           m.role === "user" ? `User: ${m.content}` : `Assistant: ${m.content}`
         );
-        prompt = `# Recent Conversation\n\n${lines.join("\n\n")}\n\n---\n\n${prompt}`;
+        layers.push({ name: "chatHistory", content: `# Recent Conversation\n\n${lines.join("\n\n")}`, priority: 30 });
       }
     }
 
     // Matched instincts (learned patterns from previous tasks)
     const instinctContext = buildInstinctContext(memoryVaultPath, taskQuery);
     if (instinctContext) {
-      prompt = `${instinctContext}\n\n---\n\n${prompt}`;
+      layers.push({ name: "instincts", content: instinctContext, priority: 50 });
     }
 
     // Search-based memory (daily/weekly notes matched by keywords)
     const memoryContext = buildContext(memoryVaultPath, taskQuery, [], 3);
     if (memoryContext) {
-      prompt = `${memoryContext}\n\n---\n\n${prompt}`;
+      layers.push({ name: "memory", content: memoryContext, priority: 40 });
     }
 
     // Search-first principle (for coder/planner roles)
     if (["coder", "planner"].includes(task.agent_role)) {
       const searchFirstContext = buildRoleSkillContext(skillsDir, "search-first");
       if (searchFirstContext) {
-        prompt = `${searchFirstContext}\n\n---\n\n${prompt}`;
+        layers.push({ name: "searchFirst", content: searchFirstContext, priority: 60 });
       }
     }
 
     // Role-specific skill (e.g. planner, code-reviewer, security-reviewer)
     const roleSkillContext = buildRoleSkillContext(skillsDir, task.agent_role);
     if (roleSkillContext) {
-      prompt = `${roleSkillContext}\n\n---\n\n${prompt}`;
+      layers.push({ name: "roleSkill", content: roleSkillContext, priority: 60 });
     }
 
     // Coding rules (common + language-specific)
     const languages = detectLanguages(workspacePath);
     const rulesContext = buildRulesContext(rulesDir, languages);
     if (rulesContext) {
-      prompt = `${rulesContext}\n\n---\n\n${prompt}`;
+      layers.push({ name: "rules", content: rulesContext, priority: 70 });
     }
 
-    // Core memory (always injected, outermost layer)
+    // Core memory (always injected)
     const coreContext = buildCoreContext(memoryVaultPath);
     if (coreContext) {
-      prompt = `${coreContext}\n\n---\n\n${prompt}`;
+      layers.push({ name: "core", content: coreContext, priority: 90 });
     }
 
-    // Completion protocol (outermost — agent sees this first)
+    // Completion protocol (highest after task — agent sees this first)
     const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
-    prompt = `${completionProtocol(task.id, apiUrl)}${prompt}`;
+    layers.push({ name: "protocol", content: completionProtocol(task.id, apiUrl), priority: 99 });
 
-    // Enforce prompt size budget — truncate if too large for model context
+    // Enforce prompt size budget — truncate layers by priority if too large
     const MAX_PROMPT_CHARS = 180000; // ~45K tokens, leaves room for agent output
-    if (prompt.length > MAX_PROMPT_CHARS) {
-      logger.warn(`Prompt for task ${task.id} exceeds budget (${prompt.length} chars) — truncating`);
-      // Preserve the completion protocol (outermost) and task description (innermost)
-      // Truncate middle context layers
-      const taskDesc = task.description ?? task.title;
-      const protocol = completionProtocol(task.id, apiUrl);
-      const availableForContext = MAX_PROMPT_CHARS - protocol.length - taskDesc.length - 100;
-      if (availableForContext > 0) {
-        const middleContext = prompt.slice(protocol.length, prompt.length - taskDesc.length);
-        prompt = protocol + middleContext.slice(0, availableForContext) + "\n\n---\n\n" + taskDesc;
-      } else {
-        prompt = protocol + taskDesc;
+    const SEPARATOR = "\n\n---\n\n";
+    const separatorOverhead = Math.max(0, layers.length - 1) * SEPARATOR.length;
+    const totalChars = layers.reduce((sum, l) => sum + l.content.length, 0) + separatorOverhead;
+
+    if (totalChars > MAX_PROMPT_CHARS) {
+      const originalLength = totalChars;
+      logger.warn(`Prompt for task ${task.id} exceeds budget (${totalChars} chars) — truncating layers`);
+
+      // Sort by priority ascending (lowest priority = cut first)
+      const cuttable = layers
+        .filter(l => l.name !== "task" && l.name !== "protocol")
+        .sort((a, b) => a.priority - b.priority);
+
+      let currentTotal = totalChars;
+      for (const layer of cuttable) {
+        if (currentTotal <= MAX_PROMPT_CHARS) break;
+        const saved = layer.content.length + SEPARATOR.length;
+        layer.content = "";
+        currentTotal -= saved;
+        logger.warn(`Truncated layer "${layer.name}" to fit prompt budget`);
       }
+
+      store.createAlert("prompt_truncated", `Task "${task.title}" prompt was truncated from ${originalLength} to ${MAX_PROMPT_CHARS} chars — some context was lost`, task.id);
     }
+
+    // Assemble prompt: protocol first, then layers by priority descending, task last
+    // Order: protocol → core → selfImprove → rules → searchFirst → roleSkill → instincts → memory → chatHistory → task
+    const assemblyOrder = ["protocol", "core", "selfImprove", "rules", "searchFirst", "roleSkill", "instincts", "memory", "chatHistory", "task"];
+    const orderedLayers = assemblyOrder
+      .map(name => layers.find(l => l.name === name))
+      .filter((l): l is { name: string; content: string; priority: number } => l != null && l.content.length > 0);
+
+    let prompt = orderedLayers.map(l => l.content).join(SEPARATOR);
 
     // Pre-dispatch security scan — alert if prompt contains potential secrets
     const secretsFound = scanForSecrets(task.description ?? task.title);
@@ -441,7 +463,17 @@ export function startOrchestrator(
               }
             }
           } else {
-            // On failure: retry if allowed, otherwise mark failed
+            // On failure: extract last stderr lines for the failure reason
+            const failEvents = store.listEvents(run.id);
+            const stderrLines = failEvents
+              .filter(e => e.kind === "stderr")
+              .slice(-5)
+              .map(e => e.payload)
+              .join("\n")
+              .slice(0, 500);
+            const reason = stderrLines || `exit code ${exitCode}`;
+
+            // Retry if allowed, otherwise mark failed
             const currentTask = store.getTask(task.id);
             if (currentTask && currentTask.retry_count < currentTask.max_retries) {
               store.incrementRetryCount(task.id);
@@ -449,7 +481,7 @@ export function startOrchestrator(
               store.updateTaskStatus(task.id, "queued");
             } else {
               store.updateTaskStatus(task.id, "failed");
-              store.createAlert("task_failed", `Task "${task.title}" failed after all retries exhausted (exit ${exitCode})`, task.id);
+              store.createAlert("task_failed", `Task "${task.title}" failed: ${reason}`, task.id);
             }
           }
 
