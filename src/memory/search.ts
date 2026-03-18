@@ -35,6 +35,9 @@ export function searchByTag(vaultPath: string, tag: string): SearchResult[] {
   const results: SearchResult[] = [];
 
   for (const note of notes) {
+    // Skip core notes — they're injected separately via buildCoreContext
+    if (note.frontmatter.type === "core") continue;
+
     if (note.frontmatter.tags.includes(tag)) {
       results.push({ note, score: 1, matchedOn: "tag" });
     }
@@ -49,6 +52,9 @@ export function searchByLink(vaultPath: string, targetTitle: string): SearchResu
   const lower = targetTitle.toLowerCase();
 
   for (const note of notes) {
+    // Skip core notes — they're injected separately via buildCoreContext
+    if (note.frontmatter.type === "core") continue;
+
     for (const link of note.links) {
       if (link.toLowerCase() === lower) {
         results.push({ note, score: 1, matchedOn: "link" });

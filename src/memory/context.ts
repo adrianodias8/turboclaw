@@ -4,6 +4,8 @@ import type { SearchResult } from "./types";
 import { join } from "path";
 import { existsSync, readFileSync, readdirSync } from "fs";
 
+const MAX_CORE_CHARS = 20000;
+
 export function buildCoreContext(vaultPath: string): string {
   const coreNotes = listNotes(vaultPath, "core");
   if (coreNotes.length === 0) return "";
@@ -13,7 +15,29 @@ export function buildCoreContext(vaultPath: string): string {
     return `## ${title}\n\n${note.content}`;
   });
 
-  return `# Core Memory\n\n${sections.join("\n\n")}`;
+  let result = `# Core Memory\n\n${sections.join("\n\n")}`;
+
+  if (result.length > MAX_CORE_CHARS) {
+    // Truncate individual note contents while keeping titles
+    const truncatedSections: string[] = [];
+    let remaining = MAX_CORE_CHARS - "# Core Memory\n\n".length - "\n\n[Core memory truncated — reduce number of core notes]".length;
+
+    for (const note of coreNotes) {
+      const title = note.frontmatter.title ?? "Untitled";
+      const header = `## ${title}\n\n`;
+      if (remaining <= header.length) break;
+      remaining -= header.length;
+      const contentBudget = Math.min(note.content.length, remaining);
+      const content = note.content.slice(0, contentBudget);
+      truncatedSections.push(`## ${title}\n\n${content}`);
+      remaining -= contentBudget;
+      if (remaining <= 0) break;
+    }
+
+    result = `# Core Memory\n\n${truncatedSections.join("\n\n")}\n\n[Core memory truncated — reduce number of core notes]`;
+  }
+
+  return result;
 }
 
 export function buildContext(
