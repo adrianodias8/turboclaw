@@ -4,6 +4,8 @@ import type { SearchResult } from "./types";
 import { join } from "path";
 import { existsSync, readFileSync, readdirSync } from "fs";
 
+const MAX_AGENT_MEMORY_CHARS = 4000;
+
 const MAX_CORE_CHARS = 20000;
 
 export function buildCoreContext(vaultPath: string): string {
@@ -35,6 +37,41 @@ export function buildCoreContext(vaultPath: string): string {
     }
 
     result = `# Core Memory\n\n${truncatedSections.join("\n\n")}\n\n[Core memory truncated — reduce number of core notes]`;
+  }
+
+  return result;
+}
+
+export function buildAgentMemoryContext(vaultPath: string): string {
+  const agentNotes = listNotes(vaultPath, "agents").filter(
+    (note) => note.frontmatter.type === "agent"
+  );
+  if (agentNotes.length === 0) return "";
+
+  const sections = agentNotes.map((note) => {
+    const title = note.frontmatter.title ?? "Untitled";
+    return `## ${title}\n\n${note.content}`;
+  });
+
+  let result = `# Agent Memory\n\n${sections.join("\n\n")}`;
+
+  if (result.length > MAX_AGENT_MEMORY_CHARS) {
+    const truncatedSections: string[] = [];
+    let remaining = MAX_AGENT_MEMORY_CHARS - "# Agent Memory\n\n".length - "\n\n[Agent memory truncated]".length;
+
+    for (const note of agentNotes) {
+      const title = note.frontmatter.title ?? "Untitled";
+      const header = `## ${title}\n\n`;
+      if (remaining <= header.length) break;
+      remaining -= header.length;
+      const contentBudget = Math.min(note.content.length, remaining);
+      const content = note.content.slice(0, contentBudget);
+      truncatedSections.push(`## ${title}\n\n${content}`);
+      remaining -= contentBudget;
+      if (remaining <= 0) break;
+    }
+
+    result = `# Agent Memory\n\n${truncatedSections.join("\n\n")}\n\n[Agent memory truncated]`;
   }
 
   return result;

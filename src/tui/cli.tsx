@@ -52,6 +52,7 @@ export function renderApp(config: TurboClawConfig) {
     requestRestart() {
       orchestrator.requestRestart(doRestart);
     },
+    vaultPath: join(config.home, "memory"),
   });
 
   const orchestrator = startOrchestrator(store, containerManager, config, restartToken, doRestart);

@@ -31,6 +31,61 @@ curl -s -X POST "${apiUrl}/tasks" \\
 - Always include what was already done so the next agent doesn't repeat work.
 - If you create a follow-up, say so clearly in your final output.
 
+## Memory System
+
+You can save durable insights to your persistent memory. Memory persists across tasks — future agents will see what you saved.
+
+**When to save memory:**
+- Environment quirks or configuration details you discovered
+- Working patterns that proved effective
+- Important context about the project that would help future tasks
+
+**When NOT to save memory:**
+- Task progress or temporary state (that's what follow-up tasks are for)
+- Information already in core memory
+- Obvious or trivial facts
+
+To manage memory:
+\`\`\`bash
+# Add a new memory
+curl -s -X POST "${apiUrl}/memory" -H 'Content-Type: application/json' -d '{"action":"add","title":"<short title>","content":"<what to remember>","source":"${taskId}"}'
+
+# Replace existing memory
+curl -s -X POST "${apiUrl}/memory" -H 'Content-Type: application/json' -d '{"action":"replace","title":"<exact title>","content":"<updated content>"}'
+
+# Remove outdated memory
+curl -s -X POST "${apiUrl}/memory" -H 'Content-Type: application/json' -d '{"action":"remove","title":"<exact title>"}'
+
+# List current memories
+curl -s ${apiUrl}/memory
+\`\`\`
+
+## Skill Creation
+
+If you solved a non-trivial problem and the approach would be useful for future tasks, create a reusable skill:
+
+\`\`\`bash
+curl -s -X POST "${apiUrl}/skills" -H 'Content-Type: application/json' -d '{
+  "name": "skill-name",
+  "category": "optional-category",
+  "content": "---\\nname: skill-name\\ndescription: What this skill does\\n---\\n\\n# Skill Title\\n\\nStep-by-step instructions..."
+}'
+\`\`\`
+
+To improve an existing skill:
+\`\`\`bash
+curl -s -X PATCH "${apiUrl}/skills/skill-name" -H 'Content-Type: application/json' -d '{
+  "oldText": "text to find in SKILL.md",
+  "newText": "replacement text"
+}'
+\`\`\`
+
+**Rules:**
+- Only create skills for reusable procedural knowledge (not project-specific facts — use memory for those)
+- Skills should be self-contained step-by-step instructions
+- Include YAML frontmatter with name and description
+- Keep skills focused — one skill per task type
+
 ---
 `;
 }

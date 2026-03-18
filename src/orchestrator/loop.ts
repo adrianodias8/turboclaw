@@ -7,7 +7,7 @@ import { completionProtocol } from "../container/completion";
 import { resolveCredentialPaths } from "../container/credentials";
 import { buildAgentCommand, getAgentEnvVars, getAgentCredentialPaths, resolveOpenCodeModel } from "../container/agent-commands";
 import type { AgentType } from "../container/agent-commands";
-import { buildContext, buildCoreContext, buildRulesContext, buildRoleSkillContext, detectLanguages } from "../memory/context";
+import { buildContext, buildCoreContext, buildAgentMemoryContext, buildRulesContext, buildRoleSkillContext, detectLanguages } from "../memory/context";
 import { maybeCreateTaskMemory } from "../memory/auto-memory";
 import { buildInstinctContext, extractInstincts, saveInstinct, listInstincts } from "../memory/instincts";
 import { advanceTask } from "../tracker/pipelines";
@@ -18,6 +18,9 @@ import { discoverSkills } from "../skills/discovery";
 import { createSkillCache } from "../skills/cache";
 import { join } from "path";
 import { mkdirSync, existsSync } from "fs";
+
+const NUDGE_INTERVAL = 5;
+let taskCounter = 0;
 
 export interface OrchestratorHandle {
   stop(): void;
@@ -255,6 +258,12 @@ export function startOrchestrator(
       layers.push({ name: "core", content: coreContext, priority: 90 });
     }
 
+    // Agent memory (always injected — insights saved by previous agents)
+    const agentMemoryContext = buildAgentMemoryContext(memoryVaultPath);
+    if (agentMemoryContext) {
+      layers.push({ name: "agentMemory", content: agentMemoryContext, priority: 85 });
+    }
+
     // Completion protocol (highest after task — agent sees this first)
     const apiUrl = `http://host.docker.internal:${config.gateway.port}`;
     layers.push({ name: "protocol", content: completionProtocol(task.id, apiUrl), priority: 99 });
@@ -286,9 +295,19 @@ export function startOrchestrator(
       store.createAlert("prompt_truncated", `Task "${task.title}" prompt was truncated from ${originalLength} to ${MAX_PROMPT_CHARS} chars — some context was lost`, task.id);
     }
 
+    // Reflection nudge: every Nth task, remind the agent to save durable insights
+    taskCounter++;
+    if (taskCounter % NUDGE_INTERVAL === 0) {
+      layers.push({
+        name: "nudge",
+        content: "# Reflection Nudge\n\nBefore finishing, take a moment to reflect: Did you learn anything durable during this task? If so, save it to memory using the memory API. Good candidates: environment quirks, effective patterns, project-specific conventions, debugging insights.",
+        priority: 35,
+      });
+    }
+
     // Assemble prompt: protocol first, then layers by priority descending, task last
-    // Order: protocol → core → selfImprove → rules → searchFirst → roleSkill → instincts → memory → chatHistory → task
-    const assemblyOrder = ["protocol", "core", "selfImprove", "rules", "searchFirst", "roleSkill", "instincts", "memory", "chatHistory", "task"];
+    // Order: protocol → core → agentMemory → selfImprove → rules → searchFirst → roleSkill → instincts → memory → nudge → chatHistory → task
+    const assemblyOrder = ["protocol", "core", "agentMemory", "selfImprove", "rules", "searchFirst", "roleSkill", "instincts", "memory", "nudge", "chatHistory", "task"];
     const orderedLayers = assemblyOrder
       .map(name => layers.find(l => l.name === name))
       .filter((l): l is { name: string; content: string; priority: number } => l != null && l.content.length > 0);
@@ -361,6 +380,26 @@ export function startOrchestrator(
         }
       } catch (err) {
         logger.warn(`Skill discovery failed for task ${task.id}:`, err);
+      }
+    }
+
+    // Also mount locally-created skills from ~/.turboclaw/skills/
+    const localSkillsDir = join(config.home, "skills");
+    if (existsSync(localSkillsDir)) {
+      try {
+        const { listLocalSkills } = await import("../skills/manager");
+        const localSkills = listLocalSkills(localSkillsDir);
+        for (const skill of localSkills) {
+          // Avoid duplicates with registry skills
+          if (!skillPaths.some(s => s.name === skill.name)) {
+            skillPaths.push({ name: skill.name, hostDir: skill.path });
+          }
+        }
+        if (localSkills.length > 0) {
+          store.addEvent(run.id, "info", `Mounting ${localSkills.length} local skills: ${localSkills.map(s => s.name).join(", ")}`);
+        }
+      } catch (err) {
+        logger.warn(`Failed to load local skills for task ${task.id}:`, err);
       }
     }
 

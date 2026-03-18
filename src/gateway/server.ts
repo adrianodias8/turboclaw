@@ -6,6 +6,8 @@ import { logger } from "../logger";
 export interface GatewayOptions {
   restartToken?: string;
   requestRestart?: () => void;
+  vaultPath?: string;
+  skillsDir?: string;
 }
 
 export function startGateway(store: Store, config: TurboClawConfig, opts?: GatewayOptions) {

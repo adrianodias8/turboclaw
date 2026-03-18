@@ -11,6 +11,8 @@ export function searchByFullText(vaultPath: string, query: string): SearchResult
   for (const note of notes) {
     // Skip core notes — they're injected separately via buildCoreContext
     if (note.frontmatter.type === "core") continue;
+    // Skip agent notes — they're injected separately via buildAgentMemoryContext
+    if (note.frontmatter.type === "agent") continue;
 
     const text = `${note.frontmatter.title ?? ""} ${note.content}`.toLowerCase();
     let matchCount = 0;
@@ -37,6 +39,8 @@ export function searchByTag(vaultPath: string, tag: string): SearchResult[] {
   for (const note of notes) {
     // Skip core notes — they're injected separately via buildCoreContext
     if (note.frontmatter.type === "core") continue;
+    // Skip agent notes — they're injected separately via buildAgentMemoryContext
+    if (note.frontmatter.type === "agent") continue;
 
     if (note.frontmatter.tags.includes(tag)) {
       results.push({ note, score: 1, matchedOn: "tag" });
@@ -54,6 +58,8 @@ export function searchByLink(vaultPath: string, targetTitle: string): SearchResu
   for (const note of notes) {
     // Skip core notes — they're injected separately via buildCoreContext
     if (note.frontmatter.type === "core") continue;
+    // Skip agent notes — they're injected separately via buildAgentMemoryContext
+    if (note.frontmatter.type === "agent") continue;
 
     for (const link of note.links) {
       if (link.toLowerCase() === lower) {

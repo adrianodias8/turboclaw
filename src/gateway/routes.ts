@@ -2,6 +2,9 @@ import type { Store } from "../tracker/store";
 import type { CreateTaskInput, CreatePipelineInput, CreateCronInput, TaskStatus } from "../tracker/types";
 import type { GatewayOptions } from "./server";
 import { logger } from "../logger";
+import { listAgentMemories, addAgentMemory, replaceAgentMemory, removeAgentMemory, getAgentMemoryBudget } from "../memory/agent-memory";
+import { createSkill, patchSkill, deleteSkill, listLocalSkills } from "../skills/manager";
+import { guardSkillContent } from "../skills/guard";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -230,6 +233,111 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     const experimentsMatch = pathname.match(/^\/experiments\/([^/]+)$/);
     if (method === "GET" && experimentsMatch?.[1]) {
       return json(store.listExperiments(experimentsMatch[1]));
+    }
+
+    // Agent Memory
+    if (pathname === "/memory" && opts?.vaultPath) {
+      const vaultPath = opts.vaultPath;
+
+      if (method === "GET") {
+        const memories = listAgentMemories(vaultPath);
+        const budget = getAgentMemoryBudget(vaultPath);
+        return json({
+          memories: memories.map((m) => ({
+            title: m.frontmatter.title ?? "Untitled",
+            content: m.content,
+            source: m.frontmatter.source,
+            created: m.frontmatter.created,
+          })),
+          budget,
+        });
+      }
+
+      if (method === "POST") {
+        const body = await parseBody<{
+          action?: string;
+          title?: string;
+          content?: string;
+          source?: string;
+        }>(req);
+        if (!body?.action || !body.title) {
+          return error("action and title are required");
+        }
+
+        if (body.action === "add") {
+          if (!body.content) {
+            return error("content is required for add action");
+          }
+          const result = addAgentMemory(vaultPath, body.title, body.content, body.source ?? null);
+          return result.ok ? json(result, 201) : error(result.error!, 400);
+        }
+
+        if (body.action === "replace") {
+          if (!body.content) {
+            return error("content is required for replace action");
+          }
+          const result = replaceAgentMemory(vaultPath, body.title, body.content);
+          return result.ok ? json(result) : error(result.error!, 404);
+        }
+
+        if (body.action === "remove") {
+          const result = removeAgentMemory(vaultPath, body.title);
+          return result.ok ? json(result) : error(result.error!, 404);
+        }
+
+        return error(`Unknown action: ${body.action}`);
+      }
+    }
+
+    // Skills management
+    if (pathname === "/skills" && opts?.skillsDir) {
+      const skillsDir = opts.skillsDir;
+
+      if (method === "GET") {
+        const skills = listLocalSkills(skillsDir);
+        return json(skills);
+      }
+
+      if (method === "POST") {
+        const body = await parseBody<{ name?: string; content?: string; category?: string }>(req);
+        if (!body?.name || !body.content) {
+          return error("name and content are required");
+        }
+
+        const guard = guardSkillContent(body.content);
+        if (!guard.allowed) {
+          return error(`Skill content rejected: ${guard.threats.join("; ")}`, 403);
+        }
+
+        const result = createSkill(skillsDir, body.name, guard.sanitized ?? body.content, body.category);
+        return result.ok ? json({ ok: true, path: result.path }, 201) : error(result.error!, 400);
+      }
+    }
+
+    const skillMatch = pathname.match(/^\/skills\/([^/]+)$/);
+    if (skillMatch?.[1] && opts?.skillsDir) {
+      const skillsDir = opts.skillsDir;
+      const skillName = skillMatch[1];
+
+      if (method === "PATCH") {
+        const body = await parseBody<{ oldText?: string; newText?: string }>(req);
+        if (!body?.oldText || body.newText === undefined) {
+          return error("oldText and newText are required");
+        }
+
+        const guard = guardSkillContent(body.newText);
+        if (!guard.allowed) {
+          return error(`Patch content rejected: ${guard.threats.join("; ")}`, 403);
+        }
+
+        const result = patchSkill(skillsDir, skillName, body.oldText, guard.sanitized ?? body.newText);
+        return result.ok ? json({ ok: true, path: result.path }) : error(result.error!, 400);
+      }
+
+      if (method === "DELETE") {
+        const result = deleteSkill(skillsDir, skillName);
+        return result.ok ? json({ ok: true }) : error(result.error!, 404);
+      }
     }
 
     return error("not found", 404);

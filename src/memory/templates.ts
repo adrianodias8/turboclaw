@@ -78,6 +78,18 @@ export function weeklyTemplate(id: string, weekStart: string, entries: Array<{ t
   return `${fm}\n\n# Week of ${weekStart}\n\n${entries.length} tasks completed.\n\n${entryLines}\n`;
 }
 
+export function agentMemoryTemplate(id: string, title: string, content: string, tags: string[], source: string | null): string {
+  const fm = renderFrontmatter({
+    id,
+    type: "agent" as NoteType,
+    tags,
+    created: Math.floor(Date.now() / 1000),
+    source,
+    title,
+  });
+  return `${fm}\n\n# ${title}\n\n${content}\n`;
+}
+
 export function mocTemplate(id: string, title: string, description: string, links: string[], tags: string[]): string {
   const fm = renderFrontmatter({
     id,
