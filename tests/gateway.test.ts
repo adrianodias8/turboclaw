@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { createStore, type Store } from "../src/tracker/store";
 import { createRoutes } from "../src/gateway/routes";
+import { createRateLimiter } from "../src/gateway/rate-limit";
 
 let db: Database;
 let store: Store;
@@ -245,5 +246,159 @@ describe("404", () => {
   it("returns not found for unknown routes", async () => {
     const { status } = await req("GET", "/unknown");
     expect(status).toBe(404);
+  });
+});
+
+describe("error boundary", () => {
+  it("route handler propagates errors (caught by server.ts boundary)", async () => {
+    const throwingHandle = createRoutes(
+      new Proxy(store, {
+        get(target, prop) {
+          if (prop === "getQueueDepth") {
+            return () => { throw new Error("secret DB corruption details"); };
+          }
+          return (target as unknown as Record<string, unknown>)[prop];
+        },
+      })
+    );
+
+    let threw = false;
+    try {
+      await throwingHandle(new Request("http://localhost/status"));
+    } catch (err: unknown) {
+      threw = true;
+      expect((err as Error).message).toBe("secret DB corruption details");
+    }
+    expect(threw).toBe(true);
+  });
+});
+
+describe("rate limiting", () => {
+  it("allows requests within the limit", () => {
+    const limiter = createRateLimiter(5, 60000);
+    for (let i = 0; i < 5; i++) {
+      expect(limiter.check("1.2.3.4")).toBe(true);
+    }
+  });
+
+  it("blocks requests exceeding the limit", () => {
+    const limiter = createRateLimiter(3, 60000);
+    expect(limiter.check("1.2.3.4")).toBe(true);
+    expect(limiter.check("1.2.3.4")).toBe(true);
+    expect(limiter.check("1.2.3.4")).toBe(true);
+    expect(limiter.check("1.2.3.4")).toBe(false);
+  });
+
+  it("tracks IPs independently", () => {
+    const limiter = createRateLimiter(1, 60000);
+    expect(limiter.check("1.1.1.1")).toBe(true);
+    expect(limiter.check("2.2.2.2")).toBe(true);
+    expect(limiter.check("1.1.1.1")).toBe(false);
+    expect(limiter.check("2.2.2.2")).toBe(false);
+  });
+
+  it("cleans up expired buckets", () => {
+    const limiter = createRateLimiter(1, 1); // 1ms window
+    limiter.check("1.2.3.4");
+    const start = Date.now();
+    while (Date.now() - start < 5) { /* busy wait */ }
+    limiter.cleanup();
+    expect(limiter.check("1.2.3.4")).toBe(true);
+  });
+});
+
+describe("skill path traversal", () => {
+  it("rejects path traversal in PATCH /skills/:name", async () => {
+    const handleWithSkills = createRoutes(store, { skillsDir: "/tmp/test-skills" });
+    const res = await handleWithSkills(new Request("http://localhost/skills/..%2F..%2Fetc", {
+      method: "PATCH",
+      body: JSON.stringify({ oldText: "a", newText: "b" }),
+      headers: { "Content-Type": "application/json" },
+    }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Invalid skill name");
+  });
+
+  it("rejects path traversal in DELETE /skills/:name", async () => {
+    const handleWithSkills = createRoutes(store, { skillsDir: "/tmp/test-skills" });
+    const res = await handleWithSkills(new Request("http://localhost/skills/..%2F..%2Fetc", { method: "DELETE" }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Invalid skill name");
+  });
+
+  it("rejects uppercase/special chars in skill names", async () => {
+    const handleWithSkills = createRoutes(store, { skillsDir: "/tmp/test-skills" });
+    const res = await handleWithSkills(new Request("http://localhost/skills/BADNAME!", {
+      method: "PATCH",
+      body: JSON.stringify({ oldText: "a", newText: "b" }),
+      headers: { "Content-Type": "application/json" },
+    }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toContain("Invalid skill name");
+  });
+});
+
+describe("checkpoint hash validation", () => {
+  it("rejects malicious hash in POST /checkpoints/restore", async () => {
+    const handleWithCheckpoints = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/tmp/test" });
+    const res = await handleWithCheckpoints(new Request("http://localhost/checkpoints/restore", {
+      method: "POST",
+      body: JSON.stringify({ workspace: "/tmp/test", hash: "; rm -rf /" }),
+      headers: { "Content-Type": "application/json" },
+    }));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe("invalid hash format");
+  });
+
+  it("rejects malicious hash in GET /checkpoints/diff", async () => {
+    const handleWithCheckpoints = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/tmp/test" });
+    const res = await handleWithCheckpoints(new Request("http://localhost/checkpoints/diff?workspace=/tmp/test&hash=;rm+-rf+/"));
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toBe("invalid hash format");
+  });
+
+  it("accepts valid short hash (passes hash validation, may fail for other reasons)", async () => {
+    const handleWithCheckpoints = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/tmp" });
+    const res = await handleWithCheckpoints(new Request("http://localhost/checkpoints/restore", {
+      method: "POST",
+      body: JSON.stringify({ workspace: "/tmp/test", hash: "abc1234" }),
+      headers: { "Content-Type": "application/json" },
+    }));
+    const data = await res.json();
+    // Hash is valid format — error should NOT be "invalid hash format"
+    expect(data.error).not.toBe("invalid hash format");
+  });
+});
+
+describe("workspace escape", () => {
+  it("rejects workspace outside allowed root in GET /checkpoints", async () => {
+    const handleWithRoot = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/home/user/projects" });
+    const res = await handleWithRoot(new Request("http://localhost/checkpoints?workspace=../../etc"));
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toBe("workspace outside allowed root");
+  });
+
+  it("rejects workspace outside allowed root in POST /checkpoints/restore", async () => {
+    const handleWithRoot = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/home/user/projects" });
+    const res = await handleWithRoot(new Request("http://localhost/checkpoints/restore", {
+      method: "POST",
+      body: JSON.stringify({ workspace: "/etc/passwd", hash: "abc1234" }),
+      headers: { "Content-Type": "application/json" },
+    }));
+    expect(res.status).toBe(403);
+    const data = await res.json();
+    expect(data.error).toBe("workspace outside allowed root");
+  });
+
+  it("allows workspace within allowed root", async () => {
+    const handleWithRoot = createRoutes(store, { checkpointsBase: "/tmp/cp", workspaceRoot: "/home/user/projects" });
+    const res = await handleWithRoot(new Request("http://localhost/checkpoints?workspace=/home/user/projects/myapp"));
+    expect(res.status).toBe(200);
   });
 });

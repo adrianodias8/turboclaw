@@ -3,10 +3,11 @@ import type { CreateTaskInput, CreatePipelineInput, CreateCronInput, TaskStatus 
 import type { GatewayOptions } from "./server";
 import { logger } from "../logger";
 import { listAgentMemories, addAgentMemory, replaceAgentMemory, removeAgentMemory, getAgentMemoryBudget } from "../memory/agent-memory";
-import { createSkill, patchSkill, deleteSkill, listLocalSkills } from "../skills/manager";
+import { createSkill, patchSkill, deleteSkill, listLocalSkills, validateSkillName } from "../skills/manager";
 import { guardSkillContent } from "../skills/guard";
 import { createCheckpointManager } from "../container/checkpoint";
 import { createBackup, restoreBackup, listBackups } from "../backup/backup";
+import { resolve } from "path";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -31,6 +32,17 @@ function safeParseInt(value: string | null, fallback?: number): number | undefin
   if (value === null) return fallback;
   const parsed = parseInt(value, 10);
   return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function isValidHash(hash: string): boolean {
+  return /^[0-9a-f]{7,64}$/i.test(hash);
+}
+
+function isValidWorkspace(workspace: string, allowedRoot?: string): boolean {
+  if (!allowedRoot) return true;
+  const resolved = resolve(workspace);
+  const allowedResolved = resolve(allowedRoot);
+  return resolved === allowedResolved || resolved.startsWith(allowedResolved + "/");
 }
 
 
@@ -335,7 +347,12 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     const skillMatch = pathname.match(/^\/skills\/([^/]+)$/);
     if (skillMatch?.[1] && opts?.skillsDir) {
       const skillsDir = opts.skillsDir;
-      const skillName = skillMatch[1];
+      const skillName = decodeURIComponent(skillMatch[1]);
+
+      const nameCheck = validateSkillName(skillName);
+      if (!nameCheck.valid) {
+        return error(`Invalid skill name: ${nameCheck.errors.join("; ")}`, 400);
+      }
 
       if (method === "PATCH") {
         const body = await parseBody<{ oldText?: string; newText?: string }>(req);
@@ -362,6 +379,7 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
     if (method === "GET" && pathname === "/checkpoints") {
       const workspace = url.searchParams.get("workspace") ?? opts?.workspaceRoot;
       if (!workspace) return error("workspace query param required", 400);
+      if (!isValidWorkspace(workspace, opts?.workspaceRoot)) return error("workspace outside allowed root", 403);
       const checkpointsBase = opts?.checkpointsBase;
       if (!checkpointsBase) return error("checkpoints not configured", 500);
       const mgr = createCheckpointManager(workspace, checkpointsBase);
@@ -374,6 +392,8 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       if (!workspace || !body?.hash) {
         return error("workspace and hash are required", 400);
       }
+      if (!isValidWorkspace(workspace, opts?.workspaceRoot)) return error("workspace outside allowed root", 403);
+      if (!isValidHash(body.hash)) return error("invalid hash format", 400);
       const checkpointsBase = opts?.checkpointsBase;
       if (!checkpointsBase) return error("checkpoints not configured", 500);
       const mgr = createCheckpointManager(workspace, checkpointsBase);
@@ -387,6 +407,8 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       if (!workspace || !hash) {
         return error("workspace and hash query params required", 400);
       }
+      if (!isValidWorkspace(workspace, opts?.workspaceRoot)) return error("workspace outside allowed root", 403);
+      if (!isValidHash(hash)) return error("invalid hash format", 400);
       const checkpointsBase = opts?.checkpointsBase;
       if (!checkpointsBase) return error("checkpoints not configured", 500);
       const mgr = createCheckpointManager(workspace, checkpointsBase);
