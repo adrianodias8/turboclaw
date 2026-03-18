@@ -90,8 +90,18 @@ export function startOrchestrator(
     logger.info(`Claimed task: ${task.title} (${task.id}) → run ${run.id} [strategy=${config.orchestrator.schedulingStrategy}]`);
 
     // Workspace: mount the host project root so the agent can work on real files.
-    // Falls back to a per-task directory if no workspaceRoot is configured.
-    const workspacePath = config.workspaceRoot ?? process.cwd();
+    // When workspaceRoot is configured, all tasks share that directory (user's intent).
+    // When not configured, each task gets its own isolated directory to prevent
+    // concurrent tasks from colliding (e.g. two tasks writing to the same files).
+    let workspacePath: string;
+    if (config.workspaceRoot) {
+      workspacePath = config.workspaceRoot;
+      if (config.orchestrator.maxConcurrency > 1 && activeCount > 0) {
+        logger.warn(`Multiple concurrent tasks sharing workspace ${workspacePath} — consider reducing maxConcurrency to 1 or using per-task workspaces`);
+      }
+    } else {
+      workspacePath = join(config.home, "workspaces", task.id);
+    }
     if (!existsSync(workspacePath)) {
       mkdirSync(workspacePath, { recursive: true });
     }

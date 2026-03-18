@@ -4,6 +4,7 @@ import { createStore, type Store } from "../src/tracker/store";
 import { parseTestOutput } from "../src/autoresearch/metrics";
 import { loadProgram } from "../src/autoresearch/program";
 import { recordExperiment, getSessionSummary, type ExperimentRecord } from "../src/autoresearch/ledger";
+import { evaluateExperiment } from "../src/autoresearch/loop";
 import { unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -407,5 +408,172 @@ describe("store experiments CRUD", () => {
 
     expect(sessionY.count).toBe(1);
     expect(sessionY.keeps).toBe(0);
+  });
+});
+
+// ── evaluateExperiment (decision logic) ──────────────────────────────
+
+describe("evaluateExperiment", () => {
+  const baseline: TestMetrics = { passed: 200, failed: 0, total: 200, durationMs: 400, raw: "200 pass\n0 fail" };
+
+  test("timeout → crash + revert", () => {
+    const result = evaluateExperiment({
+      taskResult: "timeout",
+      experimentNum: 1,
+      parentHash: "parent1",
+      currentHash: null,
+      testMetrics: null,
+      baseline,
+      description: "Experiment #1",
+    });
+    expect(result.status).toBe("crash");
+    expect(result.shouldRevert).toBe(true);
+    expect(result.commitHash).toBe("parent1");
+    expect(result.metrics.raw).toBe("TIMEOUT");
+  });
+
+  test("agent failed → crash + revert", () => {
+    const result = evaluateExperiment({
+      taskResult: "failed",
+      experimentNum: 2,
+      parentHash: "parent2",
+      currentHash: null,
+      testMetrics: null,
+      baseline,
+      description: "Experiment #2",
+    });
+    expect(result.status).toBe("crash");
+    expect(result.shouldRevert).toBe(true);
+    expect(result.commitHash).toBe("parent2");
+    expect(result.metrics.raw).toBe("AGENT_FAILED");
+  });
+
+  test("agent succeeded but made no changes → discard", () => {
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 3,
+      parentHash: "parent3",
+      currentHash: "parent3", // same hash = no changes
+      testMetrics: null,
+      baseline,
+      description: "No-op experiment",
+    });
+    expect(result.status).toBe("discard");
+    expect(result.shouldRevert).toBe(false);
+    expect(result.commitHash).toBe("parent3");
+    expect(result.metrics).toBe(baseline);
+  });
+
+  test("agent succeeded, tests crashed → crash + revert", () => {
+    const crashedMetrics: TestMetrics = { passed: 0, failed: -1, total: 0, durationMs: 100, raw: "CRASH" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 4,
+      parentHash: "parent4",
+      currentHash: "new-commit-4",
+      testMetrics: crashedMetrics,
+      baseline,
+      description: "Crash experiment",
+    });
+    expect(result.status).toBe("crash");
+    expect(result.shouldRevert).toBe(true);
+    expect(result.commitHash).toBe("parent4");
+  });
+
+  test("agent succeeded, tests regressed → regression + revert", () => {
+    const regressedMetrics: TestMetrics = { passed: 195, failed: 5, total: 200, durationMs: 450, raw: "195 pass\n5 fail" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 5,
+      parentHash: "parent5",
+      currentHash: "new-commit-5",
+      testMetrics: regressedMetrics,
+      baseline,
+      description: "Regressed experiment",
+    });
+    expect(result.status).toBe("regression");
+    expect(result.shouldRevert).toBe(true);
+    expect(result.commitHash).toBe("parent5");
+    expect(result.metrics.failed).toBe(5);
+  });
+
+  test("agent succeeded, tests improved → keep", () => {
+    const improvedMetrics: TestMetrics = { passed: 210, failed: 0, total: 210, durationMs: 420, raw: "210 pass\n0 fail" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 6,
+      parentHash: "parent6",
+      currentHash: "new-commit-6",
+      testMetrics: improvedMetrics,
+      baseline,
+      description: "Improved experiment",
+    });
+    expect(result.status).toBe("keep");
+    expect(result.shouldRevert).toBe(false);
+    expect(result.commitHash).toBe("new-commit-6");
+    expect(result.metrics.passed).toBe(210);
+  });
+
+  test("agent succeeded, tests neutral (same failures) → keep", () => {
+    const neutralMetrics: TestMetrics = { passed: 200, failed: 0, total: 200, durationMs: 390, raw: "200 pass\n0 fail" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 7,
+      parentHash: "parent7",
+      currentHash: "new-commit-7",
+      testMetrics: neutralMetrics,
+      baseline,
+      description: "Neutral experiment",
+    });
+    expect(result.status).toBe("keep");
+    expect(result.shouldRevert).toBe(false);
+    expect(result.commitHash).toBe("new-commit-7");
+  });
+
+  test("regression detected against non-zero baseline failures", () => {
+    const baselineWithFailures: TestMetrics = { passed: 195, failed: 5, total: 200, durationMs: 400, raw: "195 pass\n5 fail" };
+    const worseMetrics: TestMetrics = { passed: 192, failed: 8, total: 200, durationMs: 410, raw: "192 pass\n8 fail" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 8,
+      parentHash: "parent8",
+      currentHash: "new-commit-8",
+      testMetrics: worseMetrics,
+      baseline: baselineWithFailures,
+      description: "More failures",
+    });
+    expect(result.status).toBe("regression");
+    expect(result.shouldRevert).toBe(true);
+  });
+
+  test("fewer failures than baseline → keep", () => {
+    const baselineWithFailures: TestMetrics = { passed: 195, failed: 5, total: 200, durationMs: 400, raw: "195 pass\n5 fail" };
+    const betterMetrics: TestMetrics = { passed: 198, failed: 2, total: 200, durationMs: 400, raw: "198 pass\n2 fail" };
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 9,
+      parentHash: "parent9",
+      currentHash: "new-commit-9",
+      testMetrics: betterMetrics,
+      baseline: baselineWithFailures,
+      description: "Fixed some failures",
+    });
+    expect(result.status).toBe("keep");
+    expect(result.shouldRevert).toBe(false);
+    expect(result.commitHash).toBe("new-commit-9");
+  });
+
+  test("null currentHash (agent done but no commit) → discard", () => {
+    const result = evaluateExperiment({
+      taskResult: "done",
+      experimentNum: 10,
+      parentHash: "parent10",
+      currentHash: null,
+      testMetrics: null,
+      baseline,
+      description: "Null hash experiment",
+    });
+    expect(result.status).toBe("discard");
+    expect(result.shouldRevert).toBe(false);
   });
 });

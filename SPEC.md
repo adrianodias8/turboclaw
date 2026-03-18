@@ -829,66 +829,66 @@ Override with `TURBOCLAW_HOME` env var or `--config` flag.
 ## 7. Iteration Plan
 
 ### Phase 1: Foundation (start here)
-- [ ] Project scaffolding with Bun + Ink
-- [ ] Tracker with SQLite schema + store.ts
-- [ ] Basic gateway (create task, list tasks)
-- [ ] `bun test` for tracker operations
+- [x] Project scaffolding with Bun + Ink
+- [x] Tracker with SQLite schema + store.ts
+- [x] Basic gateway (create task, list tasks)
+- [x] `bun test` for tracker operations
 
 ### Phase 2: TUI — Onboarding & Dashboard
-- [ ] Ink setup with `@inkjs/ui`, screen routing, navigation
-- [ ] Onboarding wizard (Docker check, provider selection, build image, first pipeline)
-- [ ] Dashboard screen (queue depth, active workers, recent tasks)
-- [ ] Settings screen (edit config, provider management)
-- [ ] Task list screen (view tasks, create inline)
+- [x] Ink setup with `@inkjs/ui`, screen routing, navigation
+- [x] Onboarding wizard (Docker check, provider selection, build image, first pipeline)
+- [x] Dashboard screen (queue depth, active workers, recent tasks)
+- [x] Settings screen (edit config, provider management)
+- [x] Task list screen (view tasks, create inline)
 
 ### Phase 3: Containers
 - [x] Worker Dockerfile with Claude Code CLI
 - [x] Container manager: spawn, stream output, collect artifacts
 - [x] Build script for worker image
-- [ ] Add OpenCode agent support to Dockerfile
-- [ ] Add Codex agent support to Dockerfile
-- [ ] Browser automation (opencode-browser or Playwright)
-- [ ] Skills system (seed skills + runtime discovery) — requires OpenCode
+- [x] Add OpenCode agent support to Dockerfile
+- [x] Add Codex agent support to Dockerfile
+- [x] Browser automation (opencode-browser or Playwright)
+- [x] Skills system (seed skills + runtime discovery)
 
 ### Phase 4: Orchestration
-- [ ] Orchestrator loop with FIFO scheduling
-- [ ] Lease claiming + heartbeat
-- [ ] Retry with backoff
-- [ ] Concurrency control
+- [x] Orchestrator loop with FIFO scheduling
+- [x] Lease claiming + heartbeat
+- [x] Retry with backoff
+- [x] Concurrency control
 
 ### Phase 5: Memory — Obsidian Zettelkasten
-- [ ] Initialize vault structure on first run (`~/.turboclaw/memory/`)
-- [ ] Note templates (fleeting, permanent, task-log, project-moc)
-- [ ] Memory search (full-text, tags, wikilink graph traversal)
-- [ ] Context injection (orchestrator reads vault, injects relevant notes into task prompt)
-- [ ] Task post-hook (create task log note after completion)
-- [ ] Mount vault into worker containers (`/memory:rw`)
-- [ ] TUI Memory screen (browse vault, view graph stats, search)
+- [x] Initialize vault structure on first run (`~/.turboclaw/memory/`)
+- [x] Note templates (fleeting, permanent, task-log, project-moc)
+- [x] Memory search (full-text, tags, wikilink graph traversal)
+- [x] Context injection (orchestrator reads vault, injects relevant notes into task prompt)
+- [x] Task post-hook (create task log note after completion)
+- [x] Mount vault into worker containers (`/memory:rw`)
+- [x] TUI Memory screen (browse vault, view graph stats, search)
 
 ### Phase 6: Pipeline Support
-- [ ] Pipeline definitions (multi-stage)
-- [ ] Stage transitions with gates
-- [ ] Event streaming (SSE)
-- [ ] Logs screen in TUI (live event stream from runs)
+- [x] Pipeline definitions (multi-stage)
+- [x] Stage transitions with gates
+- [x] Event streaming (SSE)
+- [x] Logs screen in TUI (live event stream from runs)
 
 ### Phase 7: Librarian Agent
-- [ ] `librarian` agent role that processes inbox → permanent notes
-- [ ] Scheduled job: run librarian daily/weekly
-- [ ] Link discovery (find unlinked notes that should reference each other)
-- [ ] Prune stale/orphaned notes
+- [x] `librarian` agent role that processes inbox → permanent notes
+- [x] Scheduled job: run librarian daily/weekly
+- [x] Link discovery (find unlinked notes that should reference each other)
+- [x] Prune stale/orphaned notes
 
 ### Phase 8: Self-Improvement
-- [ ] Self-improvement config + TUI toggle in Settings
-- [ ] Mount project source into worker containers
-- [ ] Auto-branch creation (`turboclaw/improve/{task_id}`)
-- [ ] "Improve TurboClaw" action in Tasks screen
+- [x] Self-improvement config + TUI toggle in Settings
+- [x] Mount project source into worker containers
+- [x] Auto-branch creation (`turboclaw/improve/{task_id}`)
+- [x] "Improve TurboClaw" action in Tasks screen
 
 ### Phase 9: Polish
-- [ ] Priority scheduling strategy
+- [x] Priority scheduling strategy
 - [ ] Command palette (`/` key) for quick actions
 - [ ] Docker Compose for full stack
-- [ ] Health checks + graceful shutdown
-- [ ] Headless mode (`--headless` flag)
+- [x] Health checks + graceful shutdown
+- [x] Headless mode (`--headless` flag)
 - [ ] Optional Obsidian MCP server integration
 
 ---

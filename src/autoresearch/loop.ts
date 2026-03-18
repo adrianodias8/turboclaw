@@ -8,6 +8,85 @@ import { loadProgram } from "./program";
 import { recordExperiment, getSessionSummary } from "./ledger";
 import type { TestMetrics } from "./types";
 
+/**
+ * Evaluate an experiment result and decide what to do.
+ * Pure function — no side effects, no git, no I/O.
+ */
+export function evaluateExperiment(input: {
+  taskResult: "done" | "failed" | "timeout";
+  experimentNum: number;
+  parentHash: string;
+  currentHash: string | null; // null for timeout/failed (agent didn't produce a commit)
+  testMetrics: TestMetrics | null; // null for timeout/failed/no-changes
+  baseline: TestMetrics;
+  description: string;
+}): {
+  status: ExperimentStatus;
+  metrics: TestMetrics;
+  shouldRevert: boolean;
+  commitHash: string;
+} {
+  const { taskResult, experimentNum, parentHash, currentHash, testMetrics, baseline, description } = input;
+
+  if (taskResult === "timeout") {
+    return {
+      status: "crash",
+      metrics: { passed: 0, failed: -1, total: 0, durationMs: 0, raw: "TIMEOUT" },
+      shouldRevert: true,
+      commitHash: parentHash,
+    };
+  }
+
+  if (taskResult === "failed") {
+    return {
+      status: "crash",
+      metrics: { passed: 0, failed: -1, total: 0, durationMs: 0, raw: "AGENT_FAILED" },
+      shouldRevert: true,
+      commitHash: parentHash,
+    };
+  }
+
+  // Agent succeeded
+  if (!currentHash || currentHash === parentHash) {
+    // No changes committed
+    return {
+      status: "discard",
+      metrics: baseline,
+      shouldRevert: false,
+      commitHash: parentHash,
+    };
+  }
+
+  // Agent made changes — evaluate test results
+  if (!testMetrics || testMetrics.failed < 0) {
+    // Tests crashed
+    return {
+      status: "crash",
+      metrics: testMetrics ?? { passed: 0, failed: -1, total: 0, durationMs: 0, raw: "CRASH" },
+      shouldRevert: true,
+      commitHash: parentHash,
+    };
+  }
+
+  if (testMetrics.failed > baseline.failed) {
+    // Regression
+    return {
+      status: "regression",
+      metrics: testMetrics,
+      shouldRevert: true,
+      commitHash: parentHash,
+    };
+  }
+
+  // Improvement or neutral — keep
+  return {
+    status: "keep",
+    metrics: testMetrics,
+    shouldRevert: false,
+    commitHash: currentHash,
+  };
+}
+
 export interface AutoresearchHandle {
   stop(): void;
   isRunning(): boolean;
