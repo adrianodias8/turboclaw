@@ -540,16 +540,56 @@ bun test tests/orchestrator-shutdown.test.ts # orchestrator graceful shutdown + 
 | FTS5 index rebuild errors swallowed silently | `tracker/store.ts` | Now logs warning via logger instead of empty catch |
 | Docker worker image uses `@latest` tags (non-reproducible builds) | `docker/Dockerfile.opencode` | Pinned `opencode-ai` and `opencode-browser` to specific versions |
 
+### Also Fixed (2026-03-18, batch 2)
+
+| Issue | Location | Fix |
+|-------|----------|-----|
+| `streamLogs` 24-hour hardcoded wall-clock timeout | `container/manager.ts` | Activity-based timeout: resets on each log line, 30min inactivity limit + 24h absolute max |
+| Memory vault `listNotes()` walks entire directory synchronously | `memory/vault.ts` | Added 30-second in-memory cache with TTL, auto-invalidated on write/delete |
+| No graceful DB close on TUI exit | `tui/cli.tsx` | Added `SIGINT` handler that calls `db.close()` before exit |
+| No log rotation in headless/Docker mode | `logger.ts` | Added 10MB rotation with 3 rotated files; checks every 100 lines to minimize stat() overhead |
+| WhatsApp bridge lacks heartbeat/keep-alive | `whatsapp/bridge.ts` | 60-second presence ping; triggers reconnect on heartbeat failure |
+
+### Observability — Comprehensive Logging
+
+Extensive logging was added across all layers. Use `setLogLevel("debug")` to see the full trace.
+
+**What is now logged at each layer:**
+
+| Layer | Level | What |
+|-------|-------|------|
+| **Config** | info | Config file load/fallback, env var overrides applied, resolved config summary |
+| **Gateway** | debug/warn/error | Every HTTP request: `METHOD /path → STATUS (Xms)` |
+| **Orchestrator** | info | Task claimed (with priority, role, strategy), prompt layer breakdown with sizes, final prompt size, agent/model resolution, dispatch timing, run duration, token usage + cost |
+| **Orchestrator** | debug | Tick decisions (capacity, queue depth), credential paths, truncation details |
+| **Container** | info | Spawn details (image, mount count, env keys, agent type, spawn timing), streamLogs duration |
+| **Container** | debug | Full command line |
+| **Memory** | info | Context search results (query, matched notes with scores), core memory truncation |
+| **Memory** | debug | Core/agent note counts, rules/language detection, vault cache refreshes |
+| **Instincts** | debug | Match results (query, scores, confidence), total instinct count |
+| **WhatsApp** | info | Heartbeat lifecycle (start, failure, reconnect trigger), bridge stop |
+| **Logger** | — | 10MB log rotation with 3 backups |
+
+**Example log trace for a task lifecycle:**
+```
+[INFO] Config loaded from .turboclaw/config.json
+[INFO] Config resolved: provider=anthropic, agent=opencode, port=7800, concurrency=2
+[INFO] Claimed task: Fix login bug (abc123) → run def456 [strategy=priority, priority=5, role=coder]
+[INFO] Task abc123 prompt layers: [protocol(2100ch,p99), core(800ch,p90), rules(1200ch,p70), memory(600ch,p40), task(50ch,p100)]
+[INFO] Task abc123 final prompt: 4750 chars, 5 layers (protocol → core → rules → memory → task)
+[INFO] Task abc123 agent resolution: agent=opencode, model=anthropic/claude-sonnet-4-20250514, provider=anthropic
+[INFO] Task abc123 dispatch prepared in 45ms (workspace=/project, skills=2)
+[INFO] Spawning container: turboclaw-abc12345-def45678 (image=turboclaw-opencode, mounts=3, envVars=[ANTHROPIC_API_KEY,...], agent=opencode)
+[INFO] Container started: a1b2c3d4e5f6 (spawn took 1200ms)
+[INFO] Task abc123 token usage: model=anthropic/claude-sonnet-4-20250514, in=2500, out=800, cost=$0.0132
+[INFO] Run def456 finished: exit 0, total duration 45s, task="Fix login bug"
+```
+
 ### Known Remaining Issues
 
 | Severity | Issue | Impact |
 |----------|-------|--------|
-| Medium | `streamLogs` has 24-hour hardcoded wall-clock timeout | Long-running tasks may timeout even if actively producing output |
 | Medium | No rate limiting on gateway API endpoints | DoS vulnerability in exposed deployments |
-| Medium | Memory vault `listNotes()` walks entire directory synchronously | Scalability issue at 1000+ daily notes |
-| Low | No graceful DB close on TUI exit | Potential WAL corruption on unclean shutdown |
-| Low | No log rotation in headless/Docker mode | Logs grow unbounded in long-running deployments |
-| Low | WhatsApp bridge lacks heartbeat/keep-alive mechanism | Silent disconnects may go undetected |
 
 ### Test Coverage Gaps (Future Work)
 

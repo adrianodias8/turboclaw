@@ -59,6 +59,8 @@ export async function startWhatsAppBridge(
   let shouldReconnect = true;
   let alertedThisSession = false;
   let reconnectAttempts = 0;
+  let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  const HEARTBEAT_INTERVAL_MS = 60_000; // Send presence ping every 60s
   const sentMessageIds = new Set<string>();
   // Track which tasks came from WhatsApp and which chat to reply to
   const whatsappTaskJids = new Map<string, string>();
@@ -180,6 +182,24 @@ export async function startWhatsAppBridge(
         sock!.sendPresenceUpdate("available").catch((err) => {
           logger.warn("Failed to send available presence:", err);
         });
+
+        // Start heartbeat — periodic presence ping to detect silent disconnects
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        heartbeatInterval = setInterval(async () => {
+          if (!sock || !connected) return;
+          try {
+            await sock!.sendPresenceUpdate("available");
+            logger.debug("WhatsApp heartbeat: presence ping OK");
+          } catch (err) {
+            logger.warn("WhatsApp heartbeat failed — connection may be stale:", err);
+            // Force reconnection if heartbeat fails
+            connected = false;
+            if (shouldReconnect) {
+              logger.info("WhatsApp heartbeat failure — triggering reconnect");
+              connect(true);
+            }
+          }
+        }, HEARTBEAT_INTERVAL_MS);
 
         if (!notifier) {
           notifier = startNotifier(store, sendMessage, {
@@ -457,6 +477,10 @@ export async function startWhatsAppBridge(
   return {
     stop() {
       shouldReconnect = false;
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
       // Send "paused" for all active typing JIDs before disconnecting
       for (const jid of activeTypingByJid.keys()) {
         stopTypingPresence(jid).catch(() => {});
@@ -464,6 +488,7 @@ export async function startWhatsAppBridge(
       notifier?.stop();
       sock?.end(undefined);
       connected = false;
+      logger.info("WhatsApp bridge stopped");
     },
     isConnected() {
       return connected;

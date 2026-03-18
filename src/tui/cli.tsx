@@ -65,12 +65,20 @@ export function renderApp(config: TurboClawConfig) {
       <App store={store} initialConfig={config} startedAt={startedAt} whatsappBridge={bridge} />
     );
 
-    instance.waitUntilExit().then(() => {
+    // Ensure DB is closed on both normal exit and SIGINT
+    const cleanup = () => {
       whatsappBridge?.stop();
       orchestrator.stop();
       librarian.stop();
       server.stop();
       db.close();
+      logger.info("TUI shutdown: all resources released, database closed");
+    };
+
+    instance.waitUntilExit().then(cleanup);
+    process.on("SIGINT", () => {
+      cleanup();
+      process.exit(0);
     });
   }
 

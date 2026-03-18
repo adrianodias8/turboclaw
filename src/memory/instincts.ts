@@ -114,6 +114,12 @@ export function matchInstincts(
     .sort((a, b) => b.score - a.score)
     .slice(0, maxInstincts);
 
+  if (scored.length > 0) {
+    logger.debug(`matchInstincts: query="${query.slice(0, 60)}" → ${scored.length} matches: ${scored.map(s => `"${s.instinct.action.slice(0, 40)}" (score=${s.score.toFixed(2)}, conf=${s.instinct.confidence})`).join(", ")}`);
+  } else {
+    logger.debug(`matchInstincts: query="${query.slice(0, 60)}" → no matches (${all.length} instincts total)`);
+  }
+
   return scored.map(s => s.instinct);
 }
 

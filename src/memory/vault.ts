@@ -1,8 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import type { VaultConfig, MemoryNote, NoteFrontmatter } from "./types";
+import { logger } from "../logger";
 
 const VAULT_DIRS = ["inbox", "notes", "projects", "tasks", "agents", "templates", "core", "weekly"];
+
+// In-memory cache for listNotes to avoid repeated directory walks
+const noteCache = new Map<string, { notes: MemoryNote[]; cachedAt: number }>();
+const CACHE_TTL_MS = 30_000; // 30 seconds
 
 const WIKILINK_RE = /\[\[([^\]]+)\]\]/g;
 
@@ -13,6 +18,8 @@ export function initVault(config: VaultConfig): void {
       mkdirSync(p, { recursive: true });
     }
   }
+  // Clear cache on vault init (fresh start)
+  invalidateNoteCache(config.vaultPath);
 }
 
 export function parseFrontmatter(raw: string): { frontmatter: Record<string, unknown>; content: string } {
@@ -113,11 +120,19 @@ export function readNote(filePath: string): MemoryNote | null {
 
 export function writeNote(filePath: string, content: string): void {
   writeFileSync(filePath, content);
+  invalidateNoteCache();
 }
 
 export function listNotes(vaultPath: string, subdir?: string): MemoryNote[] {
   const dir = subdir ? join(vaultPath, subdir) : vaultPath;
   if (!existsSync(dir)) return [];
+
+  // Check cache
+  const cacheKey = dir;
+  const cached = noteCache.get(cacheKey);
+  if (cached && (Date.now() - cached.cachedAt) < CACHE_TTL_MS) {
+    return cached.notes;
+  }
 
   const notes: MemoryNote[] = [];
 
@@ -135,11 +150,31 @@ export function listNotes(vaultPath: string, subdir?: string): MemoryNote[] {
   }
 
   walk(dir);
+
+  // Update cache
+  noteCache.set(cacheKey, { notes, cachedAt: Date.now() });
+  logger.debug(`listNotes(${subdir ?? "root"}): ${notes.length} notes loaded (cache refreshed)`);
+
   return notes;
+}
+
+/** Invalidate the notes cache (call after writes/deletes). */
+export function invalidateNoteCache(vaultPath?: string): void {
+  if (vaultPath) {
+    // Invalidate all cache entries that start with this vault path
+    for (const key of noteCache.keys()) {
+      if (key.startsWith(vaultPath)) {
+        noteCache.delete(key);
+      }
+    }
+  } else {
+    noteCache.clear();
+  }
 }
 
 export function deleteNote(filePath: string): void {
   if (existsSync(filePath)) {
     unlinkSync(filePath);
+    invalidateNoteCache();
   }
 }

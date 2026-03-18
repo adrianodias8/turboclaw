@@ -3,6 +3,7 @@ import { listNotes } from "./vault";
 import type { SearchResult } from "./types";
 import { join } from "path";
 import { existsSync, readFileSync, readdirSync } from "fs";
+import { logger } from "../logger";
 
 const MAX_AGENT_MEMORY_CHARS = 4000;
 
@@ -10,7 +11,10 @@ const MAX_CORE_CHARS = 20000;
 
 export function buildCoreContext(vaultPath: string): string {
   const coreNotes = listNotes(vaultPath, "core");
-  if (coreNotes.length === 0) return "";
+  if (coreNotes.length === 0) {
+    logger.debug("buildCoreContext: no core notes found");
+    return "";
+  }
 
   const sections = coreNotes.map((note) => {
     const title = note.frontmatter.title ?? "Untitled";
@@ -19,7 +23,10 @@ export function buildCoreContext(vaultPath: string): string {
 
   let result = `# Core Memory\n\n${sections.join("\n\n")}`;
 
+  logger.debug(`buildCoreContext: ${coreNotes.length} notes, ${result.length} chars (max ${MAX_CORE_CHARS})`);
+
   if (result.length > MAX_CORE_CHARS) {
+    logger.info(`buildCoreContext: truncating from ${result.length} to ${MAX_CORE_CHARS} chars`);
     // Truncate individual note contents while keeping titles
     const truncatedSections: string[] = [];
     let remaining = MAX_CORE_CHARS - "# Core Memory\n\n".length - "\n\n[Core memory truncated — reduce number of core notes]".length;
@@ -46,7 +53,11 @@ export function buildAgentMemoryContext(vaultPath: string): string {
   const agentNotes = listNotes(vaultPath, "agents").filter(
     (note) => note.frontmatter.type === "agent"
   );
-  if (agentNotes.length === 0) return "";
+  if (agentNotes.length === 0) {
+    logger.debug("buildAgentMemoryContext: no agent notes found");
+    return "";
+  }
+  logger.debug(`buildAgentMemoryContext: ${agentNotes.length} agent notes`);
 
   const sections = agentNotes.map((note) => {
     const title = note.frontmatter.title ?? "Untitled";
@@ -109,7 +120,12 @@ export function buildContext(
   unique.sort((a, b) => b.score - a.score);
   const top = unique.slice(0, maxNotes);
 
-  if (top.length === 0) return "";
+  if (top.length === 0) {
+    logger.debug(`buildContext: no memory matches for query="${query.slice(0, 60)}" (${results.length} raw results, ${unique.length} unique)`);
+    return "";
+  }
+
+  logger.info(`buildContext: query="${query.slice(0, 60)}" → ${top.length} notes matched (from ${results.length} raw, ${unique.length} unique) — ${top.map(r => `"${r.note.frontmatter.title}" (score=${r.score.toFixed(2)})`).join(", ")}`);
 
   const sections = top.map((r) => {
     const title = r.note.frontmatter.title ?? "Untitled";
@@ -150,6 +166,7 @@ export function buildRulesContext(rulesDir: string, languages: string[] = []): s
   }
 
   if (sections.length === 0) return "";
+  logger.debug(`buildRulesContext: ${sections.length} rule sections loaded for languages=[${languages.join(", ")}]`);
   return `# Coding Rules\n\n${sections.join("\n\n---\n\n")}`;
 }
 
@@ -182,6 +199,9 @@ export function detectLanguages(workspacePath: string): string[] {
     if (existsSync(join(workspacePath, file)) && !languages.includes(lang)) {
       languages.push(lang);
     }
+  }
+  if (languages.length > 0) {
+    logger.debug(`detectLanguages: detected [${languages.join(", ")}] in ${workspacePath}`);
   }
   return languages;
 }

@@ -73,6 +73,7 @@ export function startOrchestrator(
     const dbRunningCount = store.getActiveRuns().length;
     const effectiveActive = Math.max(activeCount, dbRunningCount);
     if (effectiveActive >= config.orchestrator.maxConcurrency) {
+      logger.debug(`Tick skipped: at capacity (activeCount=${activeCount}, dbRunning=${dbRunningCount}, max=${config.orchestrator.maxConcurrency})`);
       return;
     }
 
@@ -80,6 +81,7 @@ export function startOrchestrator(
     const queued = store.listQueuedTasks();
     if (queued.length === 0) return;
 
+    logger.debug(`Tick: ${queued.length} queued tasks, ${effectiveActive}/${config.orchestrator.maxConcurrency} slots used`);
     const sorted = sortTasks(queued, config.orchestrator.schedulingStrategy);
 
     // Try to claim a task — if the top pick was already claimed, try subsequent ones
@@ -88,12 +90,16 @@ export function startOrchestrator(
       claimed = store.claimTask(nextTask.id, "orchestrator", config.orchestrator.leaseDurationSec);
       if (claimed) break;
     }
-    if (!claimed) return;
+    if (!claimed) {
+      logger.debug("Tick: all queued tasks already claimed by another worker");
+      return;
+    }
 
     const { task, run, lease } = claimed;
     activeCount++;
+    const dispatchStart = Date.now();
 
-    logger.info(`Claimed task: ${task.title} (${task.id}) → run ${run.id} [strategy=${config.orchestrator.schedulingStrategy}]`);
+    logger.info(`Claimed task: ${task.title} (${task.id}) → run ${run.id} [strategy=${config.orchestrator.schedulingStrategy}, priority=${task.priority}, role=${task.agent_role}]`);
 
     // Workspace: mount the host project root so the agent can work on real files.
     // When workspaceRoot is configured, all tasks share that directory (user's intent).
@@ -282,6 +288,13 @@ export function startOrchestrator(
       });
     }
 
+    // Log prompt layer breakdown for debugging context assembly
+    const layerSummary = layers
+      .filter(l => l.content.length > 0)
+      .map(l => `${l.name}(${l.content.length}ch, p${l.priority})`)
+      .join(", ");
+    logger.info(`Task ${task.id} prompt layers: [${layerSummary}]`);
+
     // Enforce prompt size budget — truncate layers by priority if too large
     const MAX_PROMPT_CHARS = 180000; // ~45K tokens, leaves room for agent output
     const SEPARATOR = "\n\n---\n\n";
@@ -318,6 +331,8 @@ export function startOrchestrator(
 
     let prompt = orderedLayers.map(l => l.content).join(SEPARATOR);
 
+    logger.info(`Task ${task.id} final prompt: ${prompt.length} chars, ${orderedLayers.length} layers (${orderedLayers.map(l => l.name).join(" → ")})`);
+
     // Pre-dispatch security scan — alert if prompt contains potential secrets
     const secretsFound = scanForSecrets(task.description ?? task.title);
     if (secretsFound.length > 0) {
@@ -326,6 +341,7 @@ export function startOrchestrator(
     }
 
     const { agent: resolvedAgentType, model: resolvedModel } = resolveAgentForTask(task, defaultAgent, config.provider?.model);
+    logger.info(`Task ${task.id} agent resolution: agent=${resolvedAgentType}, model=${resolvedModel ?? "default"}, provider=${config.provider?.type ?? "none"}`);
     let agentCommand = buildAgentCommand(resolvedAgentType);
     if (resolvedModel) {
       envVars.OPENCODE_MODEL = resolvedModel;
@@ -382,6 +398,9 @@ export function startOrchestrator(
         credentialPaths.push(p);
       }
     }
+    if (credentialPaths.length > 0) {
+      logger.debug(`Task ${task.id} credential paths: [${credentialPaths.join(", ")}]`);
+    }
 
     // Auto-discover skills from registries based on task prompt
     let skillPaths: Array<{ name: string; hostDir: string }> = [];
@@ -436,6 +455,9 @@ export function startOrchestrator(
     } catch (err) {
       logger.warn(`Checkpoint failed for task ${task.id}:`, err);
     }
+
+    const dispatchDurationMs = Date.now() - dispatchStart;
+    logger.info(`Task ${task.id} dispatch prepared in ${dispatchDurationMs}ms (workspace=${workspacePath}, skills=${skillPaths.length})`);
 
     try {
       const container = await containerManager.spawn({
@@ -493,6 +515,7 @@ export function startOrchestrator(
                 estimatedCostUsd: cost,
                 modelUsed: model,
               });
+              logger.info(`Task ${task.id} token usage: model=${model}, in=${metrics.tokensIn}, out=${metrics.tokensOut}, cost=$${cost.toFixed(4)}`);
             } catch (err) {
               logger.warn(`Token tracking failed for run ${run.id}:`, err);
             }
@@ -577,7 +600,8 @@ export function startOrchestrator(
           activeContainers.delete(run.id);
           decrementActiveCount();
 
-          logger.info(`Run ${run.id} finished: exit ${exitCode}`);
+          const totalDurationSec = Math.round((Date.now() - dispatchStart) / 1000);
+          logger.info(`Run ${run.id} finished: exit ${exitCode}, total duration ${totalDurationSec}s, task="${task.title}"`);
         })
         .catch(async (err) => {
           logger.error(`Error streaming logs for run ${run.id}:`, err);

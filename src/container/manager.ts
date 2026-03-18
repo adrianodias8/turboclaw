@@ -6,8 +6,10 @@ import type { ContainerConfig, SpawnOptions, ContainerInfo } from "./types";
 import { DEFAULT_CONTAINER_CONFIG } from "./types";
 import { remapHomePath, rewriteLocalhostUrls } from "./utils";
 
-/** Default streamLogs timeout: 24 hours in milliseconds */
-export const DEFAULT_STREAM_LOGS_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+/** Default streamLogs inactivity timeout: 30 minutes without output kills the stream */
+export const DEFAULT_STREAM_LOGS_INACTIVITY_MS = 30 * 60 * 1000;
+/** Absolute max wall-clock timeout: 24 hours */
+export const DEFAULT_STREAM_LOGS_MAX_MS = 24 * 60 * 60 * 1000;
 
 export interface ContainerManager {
   spawn(opts: SpawnOptions): Promise<ContainerInfo>;
@@ -197,18 +199,26 @@ export function createContainerManager(
       });
       dockerArgs.push(...cmd);
 
-      logger.info(`Spawning container: ${containerName}`);
+      // Log container configuration details for debugging
+      const mountCount = dockerArgs.filter(a => a === "-v").length;
+      const envCount = dockerArgs.filter(a => a === "-e").length;
+      const envKeys = Object.keys(opts.envVars);
+      logger.info(`Spawning container: ${containerName} (image=${image}, mounts=${mountCount}, envVars=[${envKeys.join(",")}], agent=${opts.agentType ?? "default"})`);
+      logger.debug(`Container command: ${cmd.map(c => c.length > 100 ? c.slice(0, 100) + "..." : c).join(" ")}`);
+
+      const spawnStart = Date.now();
       const { stdout, stderr, exitCode } = await runDocker(dockerArgs);
 
       if (exitCode !== 0) {
         throw new Error(`Failed to spawn container: ${stderr}`);
       }
 
+      const spawnDurationMs = Date.now() - spawnStart;
       const containerId = stdout.slice(0, 12);
       if (!/^[a-f0-9]{12}$/.test(containerId)) {
         throw new Error(`Invalid container ID from docker run: "${stdout.slice(0, 40)}"`);
       }
-      logger.info(`Container started: ${containerId}`);
+      logger.info(`Container started: ${containerId} (spawn took ${spawnDurationMs}ms)`);
 
       return {
         containerId,
@@ -250,19 +260,32 @@ export function createContainerManager(
       };
     },
 
-    async streamLogs(containerId, onData, timeoutMs = DEFAULT_STREAM_LOGS_TIMEOUT_MS) {
+    async streamLogs(containerId, onData, timeoutMs = DEFAULT_STREAM_LOGS_INACTIVITY_MS) {
       const proc = Bun.spawn(["docker", "logs", "-f", containerId], {
         stdout: "pipe",
         stderr: "pipe",
       });
 
-      // Set up timeout to kill the docker logs process if it hangs
-      const timer = setTimeout(() => {
-        logger.warn(`streamLogs timeout (${timeoutMs}ms) reached for container ${containerId} — killing docker logs process`);
-        proc.kill();
-      }, timeoutMs);
+      // Activity-based timeout: reset timer on every log line received
+      let lastActivity = Date.now();
+      const startTime = Date.now();
 
-      activeLogProcesses.set(containerId, { proc, timer });
+      const inactivityTimer = setInterval(() => {
+        const inactiveMs = Date.now() - lastActivity;
+        const wallClockMs = Date.now() - startTime;
+
+        if (wallClockMs >= DEFAULT_STREAM_LOGS_MAX_MS) {
+          logger.warn(`streamLogs wall-clock limit (24h) reached for container ${containerId} — killing docker logs process`);
+          proc.kill();
+          clearInterval(inactivityTimer);
+        } else if (inactiveMs >= timeoutMs) {
+          logger.warn(`streamLogs inactivity timeout (${Math.round(timeoutMs / 1000)}s, no output for ${Math.round(inactiveMs / 1000)}s) for container ${containerId} — killing docker logs process`);
+          proc.kill();
+          clearInterval(inactivityTimer);
+        }
+      }, 10000); // Check every 10 seconds
+
+      activeLogProcesses.set(containerId, { proc, timer: inactivityTimer });
 
       const readStream = async (stream: ReadableStream<Uint8Array>, kind: "stdout" | "stderr") => {
         const reader = stream.getReader();
@@ -272,6 +295,7 @@ export function createContainerManager(
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          lastActivity = Date.now();
           buffer += decoder.decode(value, { stream: true });
 
           const lines = buffer.split("\n");
@@ -291,15 +315,17 @@ export function createContainerManager(
 
         return await proc.exited;
       } finally {
-        clearTimeout(timer);
+        clearInterval(inactivityTimer);
         activeLogProcesses.delete(containerId);
+        const durationSec = Math.round((Date.now() - startTime) / 1000);
+        logger.info(`streamLogs finished for container ${containerId} (duration: ${durationSec}s)`);
       }
     },
 
     cancelStreamLogs(containerId) {
       const entry = activeLogProcesses.get(containerId);
       if (entry) {
-        if (entry.timer) clearTimeout(entry.timer);
+        if (entry.timer) clearInterval(entry.timer);
         entry.proc.kill();
         activeLogProcesses.delete(containerId);
         logger.info(`Cancelled streamLogs for container ${containerId}`);
@@ -308,7 +334,7 @@ export function createContainerManager(
 
     cancelAllStreamLogs() {
       for (const [containerId, entry] of activeLogProcesses) {
-        if (entry.timer) clearTimeout(entry.timer);
+        if (entry.timer) clearInterval(entry.timer);
         entry.proc.kill();
         logger.info(`Cancelled streamLogs for container ${containerId}`);
       }

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
+import { logger } from "./logger";
 
 export interface TurboClawConfig {
   home: string;
@@ -109,9 +110,12 @@ export function loadConfig(): TurboClawConfig {
   if (existsSync(configPath)) {
     try {
       fileConfig = JSON.parse(readFileSync(configPath, "utf-8"));
+      logger.info(`Config loaded from ${configPath}`);
     } catch {
-      // ignore malformed config
+      logger.warn(`Config file at ${configPath} is malformed — using defaults`);
     }
+  } else {
+    logger.info(`No config file found at ${configPath} — using defaults`);
   }
 
   const config: TurboClawConfig = {
@@ -131,36 +135,51 @@ export function loadConfig(): TurboClawConfig {
   } as TurboClawConfig;
 
   // Env var overrides — validate numeric values to prevent NaN propagation
+  const overrides: string[] = [];
   if (process.env.TURBOCLAW_GATEWAY_PORT) {
     const parsed = parseInt(process.env.TURBOCLAW_GATEWAY_PORT, 10);
     if (!Number.isNaN(parsed) && parsed > 0 && parsed <= 65535) {
       config.gateway.port = parsed;
+      overrides.push(`gateway.port=${parsed}`);
+    } else {
+      logger.warn(`Invalid TURBOCLAW_GATEWAY_PORT="${process.env.TURBOCLAW_GATEWAY_PORT}" — keeping default ${config.gateway.port}`);
     }
   }
   if (process.env.TURBOCLAW_GATEWAY_HOST) {
     config.gateway.host = process.env.TURBOCLAW_GATEWAY_HOST;
+    overrides.push(`gateway.host=${config.gateway.host}`);
   }
   if (process.env.TURBOCLAW_MAX_CONCURRENCY) {
     const parsed = parseInt(process.env.TURBOCLAW_MAX_CONCURRENCY, 10);
     if (!Number.isNaN(parsed) && parsed > 0) {
       config.orchestrator.maxConcurrency = parsed;
+      overrides.push(`maxConcurrency=${parsed}`);
     }
   }
   if (process.env.TURBOCLAW_WORKSPACE_ROOT) {
     config.workspaceRoot = process.env.TURBOCLAW_WORKSPACE_ROOT;
+    overrides.push(`workspaceRoot=${config.workspaceRoot}`);
   }
   if (process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS) {
     const parsed = parseInt(process.env.TURBOCLAW_MEMORY_DAILY_RETENTION_DAYS, 10);
     if (!Number.isNaN(parsed) && parsed > 0) {
       config.memory.dailyRetentionDays = parsed;
+      overrides.push(`dailyRetentionDays=${parsed}`);
     }
   }
   if (process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS) {
     const parsed = parseInt(process.env.TURBOCLAW_MEMORY_WEEKLY_RETENTION_WEEKS, 10);
     if (!Number.isNaN(parsed) && parsed > 0) {
       config.memory.weeklyRetentionWeeks = parsed;
+      overrides.push(`weeklyRetentionWeeks=${parsed}`);
     }
   }
+
+  if (overrides.length > 0) {
+    logger.info(`Config env var overrides applied: ${overrides.join(", ")}`);
+  }
+
+  logger.info(`Config resolved: provider=${config.provider?.type ?? "none"}, agent=${config.agent ?? "opencode"}, port=${config.gateway.port}, concurrency=${config.orchestrator.maxConcurrency}`);
 
   return config;
 }
