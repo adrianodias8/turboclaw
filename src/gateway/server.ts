@@ -10,6 +10,7 @@ export interface GatewayOptions {
   skillsDir?: string;
   checkpointsBase?: string;
   workspaceRoot?: string;
+  home?: string;
 }
 
 export function startGateway(store: Store, config: TurboClawConfig, opts?: GatewayOptions) {

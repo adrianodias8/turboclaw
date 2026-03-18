@@ -6,6 +6,7 @@ import { listAgentMemories, addAgentMemory, replaceAgentMemory, removeAgentMemor
 import { createSkill, patchSkill, deleteSkill, listLocalSkills } from "../skills/manager";
 import { guardSkillContent } from "../skills/guard";
 import { createCheckpointManager } from "../container/checkpoint";
+import { createBackup, restoreBackup, listBackups } from "../backup/backup";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -409,6 +410,38 @@ export function createRoutes(store: Store, opts?: GatewayOptions) {
       const limit = safeParseInt(limitParam);
       const results = store.searchEvents(q, limit);
       return json(results);
+    }
+
+    // Backup
+    if (method === "POST" && pathname === "/backup") {
+      if (!opts?.home) return error("backup not configured", 500);
+      const body = await parseBody<{ outputPath?: string }>(req);
+      const result = createBackup(opts.home, body?.outputPath);
+      return result.ok ? json(result, 201) : error(result.error!, 500);
+    }
+
+    if (method === "GET" && pathname === "/backups") {
+      if (!opts?.home) return error("backup not configured", 500);
+      return json(listBackups(opts.home));
+    }
+
+    if (method === "POST" && pathname === "/backup/restore") {
+      if (!opts?.home) return error("backup not configured", 500);
+      const body = await parseBody<{ path?: string }>(req);
+      if (!body?.path) return error("path is required", 400);
+      const result = restoreBackup(body.path, opts.home);
+      if (result.ok && opts.requestRestart) {
+        setTimeout(() => opts.requestRestart!(), 100);
+      }
+      return result.ok ? json(result) : error(result.error!, 400);
+    }
+
+    if (method === "POST" && pathname === "/backup/restore/dry-run") {
+      if (!opts?.home) return error("backup not configured", 500);
+      const body = await parseBody<{ path?: string }>(req);
+      if (!body?.path) return error("path is required", 400);
+      const result = restoreBackup(body.path, opts.home, { dryRun: true });
+      return result.ok ? json(result) : error(result.error!, 400);
     }
 
     return error("not found", 404);
