@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS runs (
 
 CREATE INDEX IF NOT EXISTS idx_runs_task_id ON runs(task_id);
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at);
 
 CREATE TABLE IF NOT EXISTS leases (
   id TEXT PRIMARY KEY,
@@ -62,6 +63,8 @@ CREATE TABLE IF NOT EXISTS leases (
 
 CREATE INDEX IF NOT EXISTS idx_leases_task_id ON leases(task_id);
 CREATE INDEX IF NOT EXISTS idx_leases_expires_at ON leases(expires_at);
+CREATE INDEX IF NOT EXISTS idx_leases_released ON leases(released);
+CREATE INDEX IF NOT EXISTS idx_leases_released_expires ON leases(released, expires_at);
 
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

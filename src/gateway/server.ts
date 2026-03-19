@@ -54,5 +54,13 @@ export function startGateway(store: Store, config: TurboClawConfig, opts?: Gatew
   });
 
   logger.info(`Gateway listening on http://${server.hostname}:${server.port}`);
+
+  // Wrap server to ensure cleanup interval is cleared on stop
+  const originalStop = server.stop.bind(server);
+  server.stop = (closeActiveConnections?: boolean) => {
+    clearInterval(cleanupInterval);
+    return originalStop(closeActiveConnections);
+  };
+
   return server;
 }
