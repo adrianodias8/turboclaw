@@ -37,3 +37,6 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # cached skills from auto-discovery (project root only)
 /skills/
+
+# test artifacts
+tests/.test-*
