@@ -494,37 +494,56 @@ Scans agent-written content (memories, skills) for injection attacks before pers
 
 ## Testing Strategy
 
+CI runs via GitHub Actions on every push/PR to main (`.github/workflows/test.yml`).
+
 ```bash
-bun test                                # all tests (406 passing across 26 files)
-bun test tests/tracker.test.ts          # tracker CRUD
-bun test tests/crons.test.ts            # cron CRUD
-bun test tests/alerts.test.ts           # alert CRUD
-bun test tests/cron-parser.test.ts      # cron expression parsing
-bun test tests/pipelines.test.ts        # pipeline stage advancement
-bun test tests/memory.test.ts           # memory vault operations
-bun test tests/memory-tiers.test.ts     # core/daily/weekly memory tiers
-bun test tests/credentials.test.ts      # credential path resolution
-bun test tests/self-improve.test.ts     # self-improve validation
-bun test tests/orchestrator.test.ts     # scheduling strategies
-bun test tests/gateway.test.ts          # API routes
-bun test tests/container.test.ts        # container manager
-bun test tests/agent-commands.test.ts   # agent command resolution
-bun test tests/auto-memory.test.ts      # auto-capture task output
-bun test tests/chat-history.test.ts     # WhatsApp chat history
-bun test tests/container-utils.test.ts  # container utility functions
-bun test tests/skills.test.ts           # skill discovery + cache
-bun test tests/time-parser.test.ts      # time reference parsing
-bun test tests/autoresearch.test.ts     # autoresearch loop + ledger
-bun test tests/injection-scanner.test.ts # prompt injection detection
-bun test tests/agent-memory.test.ts     # agent-writable memory CRUD + budget
-bun test tests/skills-manager.test.ts   # skill create/patch/delete + guard
-bun test tests/checkpoint.test.ts       # workspace snapshot/restore/prune
-bun test tests/session-search.test.ts   # FTS5 cross-task search
-bun test tests/routing.test.ts          # smart model routing
-bun test tests/insights.test.ts         # token tracking + cost estimation
-bun test tests/config-validation.test.ts # config env var validation + NaN rejection
-bun test tests/sse-disconnect.test.ts    # SSE stream cancel/disconnect cleanup
+bun test                                     # all tests (758 passing across 46 files)
+bun test tests/tracker.test.ts               # tracker CRUD
+bun test tests/crons.test.ts                 # cron CRUD
+bun test tests/alerts.test.ts                # alert CRUD
+bun test tests/cron-parser.test.ts           # cron expression parsing
+bun test tests/pipelines.test.ts             # pipeline stage advancement
+bun test tests/memory.test.ts                # memory vault operations
+bun test tests/memory-tiers.test.ts          # core/daily/weekly memory tiers
+bun test tests/memory-context.test.ts        # context assembly (core, agent, search, rules, languages)
+bun test tests/credentials.test.ts           # credential path resolution
+bun test tests/self-improve.test.ts          # self-improve validation
+bun test tests/orchestrator.test.ts          # scheduling strategies
+bun test tests/orchestrator-loop.test.ts     # orchestrator loop (tick, tickCrons, leases, prompt assembly)
 bun test tests/orchestrator-shutdown.test.ts # orchestrator graceful shutdown + restart
+bun test tests/gateway.test.ts               # API routes (core CRUD, SSE, rate limiting)
+bun test tests/gateway-routes.test.ts        # API routes (restart, memory, skills, search, insights, experiments)
+bun test tests/container.test.ts             # container types
+bun test tests/container-manager.test.ts     # container docker args, mounts, env vars, credential validation
+bun test tests/container-utils.test.ts       # container utility functions
+bun test tests/container-security.test.ts    # container path traversal + secrets
+bun test tests/completion-protocol.test.ts   # completion protocol preamble validation
+bun test tests/agent-commands.test.ts        # agent command resolution
+bun test tests/auto-memory.test.ts           # auto-capture task output
+bun test tests/chat-history.test.ts          # WhatsApp chat history
+bun test tests/whatsapp-reconnect.test.ts    # WhatsApp reconnection (515/428/timeout/heartbeat)
+bun test tests/skills.test.ts                # skill discovery + cache
+bun test tests/skills-manager.test.ts        # skill create/patch/delete + guard
+bun test tests/skills-discovery.test.ts      # keyword extraction for skill search
+bun test tests/time-parser.test.ts           # time reference parsing
+bun test tests/autoresearch.test.ts          # autoresearch loop + ledger
+bun test tests/injection-scanner.test.ts     # prompt injection detection
+bun test tests/agent-memory.test.ts          # agent-writable memory CRUD + budget
+bun test tests/checkpoint.test.ts            # workspace snapshot/restore/prune
+bun test tests/session-search.test.ts        # FTS5 cross-task search
+bun test tests/routing.test.ts               # smart model routing
+bun test tests/insights.test.ts              # token tracking + cost estimation
+bun test tests/config-validation.test.ts     # config env var validation + NaN rejection
+bun test tests/sse-disconnect.test.ts        # SSE stream cancel/disconnect cleanup
+bun test tests/vault-stress.test.ts          # concurrent vault read/write/delete stress
+bun test tests/tui-components.test.tsx        # TUI component rendering (Nav, StatusBar, navigation)
+bun test tests/e2e.test.ts                   # end-to-end: API → store → orchestrator → mock container
+bun test tests/notifier.test.ts              # WhatsApp notifier polling
+bun test tests/registry.test.ts              # skill registry clients
+bun test tests/instincts.test.ts             # instinct pattern learning
+bun test tests/logger.test.ts                # logger rotation
+bun test tests/scheduler.test.ts             # librarian scheduler
+bun test tests/backup.test.ts                # backup create/restore
 ```
 
 ## Known Issues & Recent Fixes
@@ -587,16 +606,14 @@ Extensive logging was added across all layers. Use `setLogLevel("debug")` to see
 
 ### Known Remaining Issues
 
-| Severity | Issue | Impact |
-|----------|-------|--------|
-| Medium | No rate limiting on gateway API endpoints | DoS vulnerability in exposed deployments |
+No critical issues. Rate limiting is implemented and tested (`gateway/rate-limit.ts`).
 
 ### Test Coverage Gaps (Future Work)
 
-- WhatsApp bridge reconnection scenarios (515/428 errors, timeout)
-- TUI component interaction tests
-- Concurrent memory vault access under load
 - Memory vault I/O errors and corrupted frontmatter handling
+- TUI screen rendering tests (dashboard, tasks, settings — beyond Nav/StatusBar)
+- Container manager integration tests with real Docker (spawn/kill/cleanup)
+- WhatsApp bridge full integration test (Baileys mock socket)
 
 ## Deployment Target
 
