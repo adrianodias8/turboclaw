@@ -85,7 +85,7 @@ async function bootHeadless() {
 function handleTaskCreate() {
   const title = getArg("--title");
   if (!title) {
-    console.error("Usage: bun run src/index.ts task create --title \"...\" [--role coder] [--priority 0]");
+    logger.error("Usage: bun run src/index.ts task create --title \"...\" [--role coder] [--priority 0]");
     process.exit(1);
   }
 
@@ -97,11 +97,11 @@ function handleTaskCreate() {
   const store = createStore(db);
 
   const task = store.createTask({ title, description, agentRole: role, priority });
-  console.log(`Created task: ${task.id}`);
-  console.log(`  Title: ${task.title}`);
-  console.log(`  Role: ${task.agent_role}`);
-  console.log(`  Priority: ${task.priority}`);
-  console.log(`  Status: ${task.status}`);
+  logger.info(`Created task: ${task.id}`);
+  logger.info(`  Title: ${task.title}`);
+  logger.info(`  Role: ${task.agent_role}`);
+  logger.info(`  Priority: ${task.priority}`);
+  logger.info(`  Status: ${task.status}`);
 
   db.close();
 }
@@ -111,32 +111,32 @@ if (args[0] === "backup") {
   const outputPath = getArg("--output");
   const result = createBackup(config.home, outputPath ?? undefined);
   if (result.ok) {
-    console.log(`Backup created: ${result.path}`);
-    console.log(`  Size: ${result.sizeBytes} bytes`);
-    console.log(`  Components: ${result.manifest!.components.map(c => `${c.name}(${c.fileCount} files)`).join(", ")}`);
+    logger.info(`Backup created: ${result.path}`);
+    logger.info(`  Size: ${result.sizeBytes} bytes`);
+    logger.info(`  Components: ${result.manifest!.components.map(c => `${c.name}(${c.fileCount} files)`).join(", ")}`);
   } else {
-    console.error(`Backup failed: ${result.error}`);
+    logger.error(`Backup failed: ${result.error}`);
     process.exit(1);
   }
 } else if (args[0] === "restore") {
   const { restoreBackup } = await import("./backup/backup");
   const archivePath = args.find(a => !a.startsWith("-") && a !== "restore");
   if (!archivePath) {
-    console.error("Usage: bun run src/index.ts restore <path> [--dry-run]");
+    logger.error("Usage: bun run src/index.ts restore <path> [--dry-run]");
     process.exit(1);
   }
   const dryRun = args.includes("--dry-run");
   const result = restoreBackup(archivePath, config.home, { dryRun });
   if (result.ok) {
     if (dryRun) {
-      console.log(`Dry run — would restore: ${result.restoredComponents!.join(", ")}`);
+      logger.info(`Dry run — would restore: ${result.restoredComponents!.join(", ")}`);
     } else {
-      console.log(`Restored: ${result.restoredComponents!.join(", ")}`);
-      if (result.safetyBackupPath) console.log(`Safety backup: ${result.safetyBackupPath}`);
+      logger.info(`Restored: ${result.restoredComponents!.join(", ")}`);
+      if (result.safetyBackupPath) logger.info(`Safety backup: ${result.safetyBackupPath}`);
       process.exit(RESTART_EXIT_CODE);
     }
   } else {
-    console.error(`Restore failed: ${result.error}`);
+    logger.error(`Restore failed: ${result.error}`);
     process.exit(1);
   }
 } else if (args[0] === "task" && args[1] === "create") {
